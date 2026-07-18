@@ -1,0 +1,73 @@
+# LWGSM Supabase Setup
+
+## How to set up
+
+Run these **in order** in your Supabase dashboard → **SQL Editor**:
+
+### Step 1 — Core schema
+
+```
+supabase/00_initial_setup.sql
+```
+
+Creates all core tables, enums, RLS policies, helper functions, triggers, and seeds the 10 programmes.
+
+### Step 2 — Communications
+
+```
+supabase/migration_communication.sql
+```
+
+Adds `messages`, `announcements`, `notifications`, extended profile fields
+(nationality, expanded `language_pref`), and the `site_settings` table
+(used for the USD→NGN exchange rate). **Required** — `NotificationBell.tsx`,
+`MessagesPane.tsx`, and the currency toggle all depend on this.
+
+### Step 3 — Student portal, certificates, public pages
+
+```
+supabase/migration_student_portal.sql
+supabase/migration_certificates.sql
+supabase/migration_public_pages.sql
+```
+
+### Step 4 — Feature batches (run in this order)
+
+```
+supabase/migration_features_2026.sql
+supabase/migration_payments.sql
+supabase/migration_certificates_reports.sql
+supabase/migration_usage_events.sql
+supabase/migration_avatars.sql
+```
+
+Lecturer `lecturer_id`-only normalization, the tests/exams question bank +
+server-side auto-grading RPC, USD currency ledger columns, private storage
+bucket policies, lecturer-typed material content, the full payment system
+(Paystack + bank transfer + receipts), certificate eligibility +
+`grades_published`, the `usage_events` log for the System Usage report, and
+the public `avatars` storage bucket. See the top-level `README.md` for
+details and the going-live checklist (Edge Function deploy, Google OAuth,
+Paystack key, bank accounts, exchange rate).
+
+### Step 5 — Environment variables
+
+Copy `.env.example` to `.env` and fill in your Supabase project URL and anon key:
+
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### Step 6 — Create your first admin
+
+After running the SQL and creating an account through the UI, update the role manually:
+
+```sql
+update public.profiles set role = 'admin' where email = 'mail.livingwatersglobalministry@gmail.com';
+```
+
+## Other files in this directory (superseded)
+
+- `lwsm_setup.sql` — an older draft of the initial setup; not used, kept for reference only.
+- `migrations/001_init.sql` — original base schema, superseded by `00_initial_setup.sql`.
