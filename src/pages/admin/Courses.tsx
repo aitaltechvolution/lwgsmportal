@@ -58,11 +58,20 @@ export default function AdminCourses() {
   const load = async () => {
     setLoading(true);
     const [cRes, pRes, lRes, linkRes] = await Promise.all([
-      supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, programs(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
+      supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, programs!courses_program_id_fkey(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
       supabase.from("programs").select("id, title, title_fr").order("title"),
       supabase.from("profiles").select("id, full_name").eq("role", "lecturer").order("full_name"),
       supabase.from("course_programs").select("course_id, program_id"),
     ]);
+
+    if (cRes.error) {
+      showToast("error", lang === "en"
+        ? `Could not load courses: ${cRes.error.message}`
+        : `Impossible de charger les cours : ${cRes.error.message}`);
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
 
     const list = (cRes.data ?? []) as unknown as CourseRow[];
     const courseIds = list.map(c => c.id);

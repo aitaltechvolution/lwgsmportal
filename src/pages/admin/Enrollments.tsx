@@ -54,7 +54,7 @@ export default function AdminEnrollments() {
     const [enrRes, stuRes, cRes] = await Promise.all([
       supabase
         .from("enrollments")
-        .select("id, student_id, course_id, status, enrolled_at, student:student_id(full_name, email, avatar_url), course:course_id(title, title_fr, code, programs(title, title_fr))")
+        .select("id, student_id, course_id, status, enrolled_at, student:student_id(full_name, email, avatar_url), course:course_id(title, title_fr, code, programs!courses_program_id_fkey(title, title_fr))")
         .order("enrolled_at", { ascending: false })
         .limit(200),
       supabase.from("profiles").select("id, full_name, email").eq("role", "student").order("full_name"),

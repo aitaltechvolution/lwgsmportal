@@ -94,7 +94,7 @@ export default function CourseDetail() {
 
     const [cRes, mRes, aRes, gRes, eRes, subRes, unlockRes, regRes, regFeeRes] = await Promise.all([
       supabase.from("courses")
-        .select("*, programs(title,title_fr,type), profiles(full_name,title,email)")
+        .select("*, programs!courses_program_id_fkey(title,title_fr,type), profiles(full_name,title,email)")
         .eq("id", id).maybeSingle(),
       supabase.from("course_materials").select("*").eq("course_id", id)
         .order("sort_order", { ascending: true, nullsFirst: false })

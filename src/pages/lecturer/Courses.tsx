@@ -61,7 +61,7 @@ export default function LecturerCourses() {
     setLoading(true);
     const { data, error } = await supabase
       .from("courses")
-      .select("*, programs(title, title_fr)")
+      .select("*, programs!courses_program_id_fkey(title, title_fr)")
       .eq("lecturer_id", profile.id)
       .order("created_at", { ascending: false });
 
