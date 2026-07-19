@@ -65,8 +65,8 @@ const WHY_ITEMS = [
 ];
 
 const STATS = [
-  { value: "500+",  labelKey: "stats_students",    icon: Users },
-  { value: "21",     labelKey: "stats_programmes",  icon: GraduationCap },
+  { value: "100+",  labelKey: "stats_students",    icon: Users },
+  { value: "21+",     labelKey: "stats_programmes",  icon: GraduationCap },
   { value: "6",      labelKey: "stats_countries", icon: Globe2 },
 ];
 
@@ -100,7 +100,7 @@ export default function Home() {
         <GradientBlobs variant="dark" />
         {/* Background hero image — subtle overlay */}
         <img
-          src="https://images.unsplash.com/photo-1531482615713-2afd69097998?w=1600&q=80&fit=crop"
+          src="/imgs/class 2.jpg"
           alt=""
           aria-hidden="true"
           className="absolute inset-0 w-full h-full object-cover opacity-[0.08] pointer-events-none select-none"
@@ -149,7 +149,7 @@ export default function Home() {
             <div className="relative animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
               <div className="relative rounded-3xl overflow-hidden mb-4 shadow-2xl">
                 <img
-                  src="https://images.unsplash.com/photo-1605711285791-0219e80e43a3?w=800&q=80&fit=crop"
+                  src="/imgs/class 3.jpg"
                   alt="Ministry students in a collaborative session"
                   className="w-full h-64 object-cover"
                 />

@@ -203,7 +203,7 @@ export default function About() {
       <section className="py-0 overflow-hidden">
         <div className="grid md:grid-cols-2 min-h-[340px]">
           <img
-            src="https://images.unsplash.com/photo-1531482615713-2afd69097998?w=800&q=80&fit=crop"
+            src="/imgs/class 1.jpg"
             alt="Students collaborating"
             className="w-full h-full object-cover min-h-[220px]"
           />
@@ -237,8 +237,8 @@ export default function About() {
             <h2 className="text-xl font-bold text-navy mb-3">{lang === "en" ? "Our Mission" : "Notre Mission"}</h2>
             <p className="text-slate leading-relaxed text-sm">
               {lang === "en"
-                ? "To provide accessible, rigorous, and practice-oriented ministry education that equips believers with the skills and kingdom mindset to lead churches and organisations, create value, and drive transformation across the nations."
-                : "Fournir une éducation ministérielle accessible, rigoureuse et axée sur la pratique, qui dote les croyants des compétences et de l'état d'esprit nécessaires pour diriger des églises et des organisations, et transformer les nations."}
+                ? "Living Waters Global School of Ministry exists to equip, train, and disciple believers throughsound biblical teaching, practical ministry training, leadership development, and spiritual formation, empowering them to fulfill their divine calling and become effective ambassadors of Christ in every sphere of influence."
+                : "La Living Waters Global School of Ministry a pour mission d'équiper, de former et de faire des disciples à travers un enseignement biblique solide, une formation pratique au ministère, le développement du leadership et la formation spirituelle, afin de leur permettre d'accomplir leur vocation divine et de devenir des ambassadeurs efficaces du Christ dans chaque sphère d'influence."}
             </p>
           </div>
           <div className="card p-8">
@@ -248,8 +248,8 @@ export default function About() {
             <h2 className="text-xl font-bold text-navy mb-3">{lang === "en" ? "Our Vision" : "Notre Vision"}</h2>
             <p className="text-slate leading-relaxed text-sm">
               {lang === "en"
-                ? "To be a leading global school of ministry, recognised for academic excellence, applied learning, and producing graduates who transform churches, industries and communities across the nations."
-                : "Être une école de ministère de référence à l'échelle mondiale, reconnue pour l'excellence académique et la production de diplômés qui transforment les églises, les industries et les communautés à travers les nations."}
+                ? "To raise a generation of Spirit-filled, biblically grounded, and transformational leaders whocarry God's presence, advance His Kingdom, and impact nations through Christ-centeredministry and service"
+                : "Susciter une génération de leaders remplis de l'Esprit, ancrés dans la Bible et transformationnels, qui portent la présence de Dieu, font progresser Son Royaume et impactent les nations à travers un ministère et un service centrés sur le Christ."}
             </p>
           </div>
         </div>
@@ -291,7 +291,7 @@ export default function About() {
               {ACRONYM.map((a, i) => (
                 <div key={i} className="bg-navy rounded-xl p-3 text-center">
                   <div className="text-brand font-black text-xl mb-0.5">{a.letter}</div>
-                  <div className="text-white text-[10px] font-semibold leading-tight">{lang === "en" ? a.en : a.fr}</div>
+                  <div className="text-white text-[12px] font-semibold leading-tight">{lang === "en" ? a.en : a.fr}</div>
                 </div>
               ))}
             </div>
@@ -300,7 +300,7 @@ export default function About() {
       </section>
 
       {/* ── SYMBOLS ── */}
-      <section className="py-16 px-4 bg-white">
+      {/* <section className="py-16 px-4 bg-white">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12 animate-fade-in-up">
             <p className="text-brand text-xs font-bold uppercase tracking-[0.2em] mb-3">
@@ -326,7 +326,7 @@ export default function About() {
             })}
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* ── WHAT MAKES US UNIQUE ── */}
       <section className="py-16 px-4 bg-navy">
@@ -425,21 +425,21 @@ export default function About() {
       </section>
 
       {/* ── GALLERY STRIP ── */}
-      <section className="py-0 overflow-hidden">
+      {/* <section className="py-0 overflow-hidden">
         <div className="grid grid-cols-3 h-48 md:h-64">
           <img src="https://images.unsplash.com/photo-1605711285791-0219e80e43a3?w=600&q=80&fit=crop" alt="" aria-hidden className="w-full h-full object-cover" />
           <img src="https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=600&q=80&fit=crop" alt="" aria-hidden className="w-full h-full object-cover" />
           <img src="https://images.unsplash.com/photo-1571260899304-425eee4c7efc?w=600&q=80&fit=crop" alt="" aria-hidden className="w-full h-full object-cover" />
         </div>
-      </section>
+      </section> */}
 
       {/* ── CTA ── */}
       <section className="py-16 px-4 bg-navy relative overflow-hidden">
-        <img
+        {/* <img
           src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1400&q=80&fit=crop"
           alt="" aria-hidden
           className="absolute inset-0 w-full h-full object-cover opacity-10 pointer-events-none"
-        />
+        /> */}
         <div className="max-w-2xl mx-auto text-center relative animate-fade-in-up">
           <h2 className="text-2xl font-black text-white mb-3">
             {lang === "en" ? "Ready to Join LWGSM?" : "Prêt à Rejoindre LWGSM ?"}

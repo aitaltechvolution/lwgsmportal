@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import AdminLayout from "@/components/AdminLayout";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { ClipboardList, CheckCircle2, XCircle, Clock, Eye } from "lucide-react";
-import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
+import { ClipboardList, CheckCircle2, XCircle, Clock, Eye, Mail, Copy } from "lucide-react";
+import { Badge, EmptyState, SkeletonRow, Modal } from "@/components/ui/primitives";
 import { useToast } from "@/contexts/ToastContext";
 import { useConfirm } from "@/contexts/ConfirmContext";
 
@@ -20,6 +20,7 @@ interface Application {
   submitted_at: string;
   work_experience: string | null;
   course_id?: string | null;
+  student_id?: string | null;
   payment_status?: string | null;
   payment_reference?: string | null;
   programs?: { title: string; type: string } | null;
@@ -40,6 +41,7 @@ export default function AdminApplications() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all"|"pending"|"approved"|"rejected">("all");
+  const [emailFallback, setEmailFallback] = useState<{ to: string; subject: string; body: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -54,18 +56,53 @@ export default function AdminApplications() {
   useEffect(() => { load(); }, []);
 
   const updateStatus = async (id: string, status: "approved"|"rejected") => {
+    const app = apps.find(a => a.id === id);
     const ok = await confirm({
       title: lang === "en" ? `${status === "approved" ? "Approve" : "Reject"} this application?` : `${status === "approved" ? "Approuver" : "Rejeter"} cette candidature ?`,
-      message: lang === "en" ? "This will update the applicant's status." : "Cela mettra à jour le statut du candidat.",
+      message: status === "approved"
+        ? (lang === "en"
+            ? (app?.student_id
+                ? "This will add the course to their existing account and email them to log in."
+                : "This will create their student account, enrol them in the course, and email them to set a password.")
+            : "Cela ajoutera le cours à leur compte ou créera leur compte, puis leur enverra un e-mail.")
+        : (lang === "en" ? "This will reject the application and email the applicant. No account will be created." : "Cela rejettera la candidature et enverra un e-mail au candidat. Aucun compte ne sera créé."),
       confirmLabel: status === "approved" ? (lang === "en" ? "Approve" : "Approuver") : (lang === "en" ? "Reject" : "Rejeter"),
       tone: status === "approved" ? "default" : "danger",
     });
     if (!ok) return;
-    await supabase.from("applications").update({ status }).eq("id", id);
+
+    const { data, error: fnErr } = await supabase.functions.invoke("process-application-decision", {
+      body: { applicationId: id, decision: status === "approved" ? "approve" : "reject" },
+    });
+
+    if (fnErr || data?.error) {
+      showToast("error", data?.error ?? fnErr?.message ?? "Something went wrong.");
+      return;
+    }
+
     setApps(prev => prev.map(a => a.id === id ? { ...a, status } : a));
-    showToast(status === "approved" ? "success" : "info",
-      lang === "en" ? `Application ${status}.` : `Candidature ${status === "approved" ? "approuvée" : "rejetée"}.`
-    );
+
+    if (!data.emailSent) {
+      // Resend isn't configured or the call failed — the account/enrolment/
+      // status change already went through regardless. Give admin a
+      // copyable message and a mailto: link so they can send it manually.
+      const joinLine = data.actionLink
+        ? `Set your password here:\n${data.actionLink}`
+        : data.kind === "existing_student"
+          ? `Log in here:\n${window.location.origin}/login`
+          : "";
+      setEmailFallback({
+        to: app?.applicant_email ?? "",
+        subject: status === "approved" ? "Your LWGSM Application Has Been Approved" : "Update on Your LWGSM Application",
+        body: status === "approved"
+          ? `Dear ${app?.applicant_name ?? "Applicant"},\n\nCongratulations — your application to LWGSM has been approved.\n\n${joinLine}\n\nQuestions? Reach us at admissions@lwgsm.livingwatersglobalministry.org`
+          : `Dear ${app?.applicant_name ?? "Applicant"},\n\nThank you for your interest in LWGSM. After prayerful review, we're unable to offer admission at this time.\n\nQuestions? Reach us at admissions@lwgsm.livingwatersglobalministry.org`,
+      });
+    } else {
+      showToast("success", status === "approved"
+        ? (lang === "en" ? "Applicant approved and emailed." : "Candidat approuvé et e-mail envoyé.")
+        : (lang === "en" ? "Application rejected and applicant emailed." : "Candidature rejetée et e-mail envoyé."));
+    }
   };
 
   const filtered = filter === "all" ? apps : apps.filter(a => a.status === filter);
@@ -165,6 +202,41 @@ export default function AdminApplications() {
           ))}
         </div>
       )}
+
+      {/* Fallback shown when Resend isn't configured or the send failed —
+          admin can copy the message or open their own mail client instead. */}
+      <Modal open={!!emailFallback} onClose={() => setEmailFallback(null)}
+        title={lang === "en" ? "Couldn't Send Automatically" : "Envoi Automatique Impossible"} maxWidth="max-w-lg">
+        {emailFallback && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate">
+              {lang === "en"
+                ? "The applicant was approved, but the automatic email couldn't be sent (Resend may not be configured yet). Copy the message below or send it yourself."
+                : "Le candidat a été approuvé, mais l'e-mail automatique n'a pas pu être envoyé. Copiez le message ci-dessous ou envoyez-le vous-même."}
+            </p>
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-sm text-ink whitespace-pre-wrap font-mono">
+              {emailFallback.body}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { navigator.clipboard.writeText(emailFallback.body); showToast("info", lang === "en" ? "Message copied." : "Message copié."); }}
+                className="btn-ghost border border-gray-200 flex-1 flex items-center justify-center gap-2">
+                <Copy className="w-4 h-4" strokeWidth={2} />
+                {lang === "en" ? "Copy Message" : "Copier le Message"}
+              </button>
+              <a
+                href={`mailto:${emailFallback.to}?subject=${encodeURIComponent(emailFallback.subject)}&body=${encodeURIComponent(emailFallback.body)}`}
+                className="btn-primary flex-1 flex items-center justify-center gap-2">
+                <Mail className="w-4 h-4" strokeWidth={2} />
+                {lang === "en" ? "Send via Mail" : "Envoyer par Mail"}
+              </a>
+            </div>
+            <p className="text-xs text-gray-400 text-center">
+              {lang === "en" ? "Sends from your own mail client, e.g. admissions@lwgsm.livingwatersglobalministry.org" : "Envoyé depuis votre propre client de messagerie."}
+            </p>
+          </div>
+        )}
+      </Modal>
     </AdminLayout>
   );
 }

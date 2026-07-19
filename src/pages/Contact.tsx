@@ -10,12 +10,12 @@ const FAQS = [
     fr: { q: "Quels programmes propose LWGSM ?", a: "Nous proposons des programmes de Certificat, Diplôme et Diplôme Avancé en ministère et développement du leadership, conçus pour renforcer à la fois la profondeur académique et le caractère spirituel." },
   },
   {
-    en: { q: "How do I apply for admission?", a: "Visit our Admissions page and complete the online application form. Our team reviews every application and will reach out with next steps, usually within a few business days." },
-    fr: { q: "Comment puis-je postuler ?", a: "Rendez-vous sur notre page Admissions et remplissez le formulaire de candidature en ligne. Notre équipe examine chaque candidature et vous contactera avec les prochaines étapes, généralement sous quelques jours ouvrables." },
+    en: { q: "How do I apply for admission?", a: "Visit our Admissions page and complete the online application form. Our team reviews every application and will reach out with next steps." },
+    fr: { q: "Comment puis-je postuler ?", a: "Rendez-vous sur notre page Admissions et remplissez le formulaire de candidature en ligne. Notre équipe examine chaque candidature et vous contactera avec les prochaines étapes." },
   },
   {
-    en: { q: "Are classes held online or in person?", a: "Our programmes are delivered through a flexible online portal, so students anywhere in the world can study at their own pace alongside live cohort sessions and assessments." },
-    fr: { q: "Les cours sont-ils en ligne ou en présentiel ?", a: "Nos programmes sont dispensés via un portail en ligne flexible, permettant aux étudiants du monde entier d'étudier à leur rythme, en complément de sessions de cohorte en direct et d'évaluations." },
+    en: { q: "Are classes held online or in person?", a: "OOur programmes are delivered both through a flexible online portal and in person, so students anywhere in the world can study at their own pace alongside live cohort sessions and assessments." },
+    fr: { q: "Les cours sont-ils en ligne ou en présentiel ?", a: "Nos programmes sont proposés aussi bien en ligne via un portail flexible qu'en présentiel, afin que les étudiants du monde entier puissent étudier à leur propre rythme tout en suivant des sessions collectives en direct et des évaluations." },
   },
   {
     en: { q: "What are the payment options?", a: "Tuition can be paid via card or bank transfer, in Naira, US Dollars, or Euros. Manual bank transfers are confirmed by our finance team once the reference is submitted through your student portal." },

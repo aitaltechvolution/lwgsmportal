@@ -95,15 +95,21 @@ export default function StudentCourses() {
           </p>
         </div>
 
-        <div className="relative sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
-          <input
-            type="text"
-            placeholder={lang === "en" ? "Search courses…" : "Rechercher…"}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input pl-9"
+        <div className="flex items-center gap-3">
+          <Link to="/admissions" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-bold text-navy border border-navy/15 hover:bg-navy hover:text-white rounded-xl px-4 py-2.5 transition-all whitespace-nowrap">
+            <GraduationCap className="w-4 h-4" strokeWidth={2} />
+            {lang === "en" ? "Apply for Another Course" : "Postuler à un Autre Cours"}
+          </Link>
+          <div className="relative sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
+            <input
+              type="text"
+              placeholder={lang === "en" ? "Search courses…" : "Rechercher…"}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input pl-9"
           />
+        </div>
         </div>
       </div>
 

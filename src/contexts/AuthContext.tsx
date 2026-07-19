@@ -200,6 +200,30 @@ export async function flushPendingProfile(userId: string, email: string) {
   }
 }
 
+// Same bridge pattern as flushPendingProfile, but for someone who joined
+// via an admissions invite link and had to confirm their email before a
+// session existed. Enrols them in the course they picked and marks the
+// invite as used, once they're actually signed in.
+export async function flushPendingInvite(userId: string) {
+  const raw = localStorage.getItem("lwgsm_pending_invite");
+  if (!raw) return;
+  try {
+    const { applicationId, courseId } = JSON.parse(raw);
+    if (courseId) {
+      await supabase.from("enrollments").upsert(
+        { student_id: userId, course_id: courseId, status: "active" },
+        { onConflict: "student_id,course_id" }
+      );
+    }
+    if (applicationId) {
+      await supabase.from("applications").update({ invite_used: true }).eq("id", applicationId);
+    }
+    localStorage.removeItem("lwgsm_pending_invite");
+  } catch (e) {
+    console.error("flushPendingInvite error:", e);
+  }
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

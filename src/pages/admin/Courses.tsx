@@ -24,6 +24,7 @@ interface CourseRow {
   programs?: { title: string; title_fr?: string } | null;
   profiles?: { full_name: string } | null;
   studentCount?: number;
+  linkedProgramNames?: string;
 }
 
 interface Program { id: string; title: string; title_fr: string | null; }
@@ -51,16 +52,29 @@ export default function AdminCourses() {
   const [enrolledStudents, setEnrolledStudents] = useState<{id:string;full_name:string;email:string;progress_pct:number|null}[]>([]);
   const [loadingEnrolled, setLoadingEnrolled] = useState(false);
 
+  // Many-to-many programs linked to the course being edited
+  const [linkedProgramIds, setLinkedProgramIds] = useState<Set<string>>(new Set());
+
   const load = async () => {
     setLoading(true);
-    const [cRes, pRes, lRes] = await Promise.all([
+    const [cRes, pRes, lRes, linkRes] = await Promise.all([
       supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, programs(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
       supabase.from("programs").select("id, title, title_fr").order("title"),
       supabase.from("profiles").select("id, full_name").eq("role", "lecturer").order("full_name"),
+      supabase.from("course_programs").select("course_id, program_id"),
     ]);
 
     const list = (cRes.data ?? []) as unknown as CourseRow[];
     const courseIds = list.map(c => c.id);
+    const progList = (pRes.data ?? []) as Program[];
+    const progNameMap = new Map(progList.map(p => [p.id, (lang === "fr" && p.title_fr) ? p.title_fr : p.title]));
+    const linksByCourse = new Map<string, string[]>();
+    (linkRes.data ?? []).forEach((l: { course_id: string; program_id: string }) => {
+      const names = linksByCourse.get(l.course_id) ?? [];
+      names.push(progNameMap.get(l.program_id) ?? "");
+      linksByCourse.set(l.course_id, names);
+    });
+    list.forEach(c => { c.linkedProgramNames = (linksByCourse.get(c.id) ?? []).filter(Boolean).join(", "); });
 
     if (courseIds.length > 0) {
       const { data: enrData } = await supabase.from("enrollments").select("course_id").in("course_id", courseIds).eq("status", "active");
@@ -83,11 +97,31 @@ export default function AdminCourses() {
     return c.title.toLowerCase().includes(q) || c.title_fr?.toLowerCase().includes(q) || c.code?.toLowerCase().includes(q);
   });
 
-  const openCreate = () => { setEditingId(null); setForm({ ...EMPTY_FORM }); setError(null); setShowModal(true); };
-  const openEdit = (c: CourseRow) => {
+  const openCreate = () => { setEditingId(null); setForm({ ...EMPTY_FORM }); setError(null); setLinkedProgramIds(new Set()); setShowModal(true); };
+  const openEdit = async (c: CourseRow) => {
     setEditingId(c.id);
     setForm({ title: c.title, title_fr: c.title_fr ?? "", code: c.code ?? "", program_id: c.program_id ?? "", lecturer_id: c.lecturer_id ?? "", description: c.description ?? "", description_fr: c.description_fr ?? "", objectives: c.objectives ?? "", duration: c.duration ?? "", is_published: c.is_published, lecturer_locked: c.lecturer_locked });
-    setError(null); setShowModal(true);
+    setError(null);
+    const { data } = await supabase.from("course_programs").select("program_id").eq("course_id", c.id);
+    setLinkedProgramIds(new Set((data ?? []).map((r: { program_id: string }) => r.program_id)));
+    setShowModal(true);
+  };
+
+  const toggleProgramLink = async (programId: string) => {
+    if (!editingId) return;
+    const isLinked = linkedProgramIds.has(programId);
+    setLinkedProgramIds(prev => {
+      const next = new Set(prev);
+      isLinked ? next.delete(programId) : next.add(programId);
+      return next;
+    });
+    if (isLinked) {
+      const { error: delErr } = await supabase.from("course_programs").delete().eq("course_id", editingId).eq("program_id", programId);
+      if (delErr) { showToast("error", delErr.message); setLinkedProgramIds(prev => new Set(prev).add(programId)); }
+    } else {
+      const { error: insErr } = await supabase.from("course_programs").insert({ course_id: editingId, program_id: programId });
+      if (insErr) { showToast("error", insErr.message); setLinkedProgramIds(prev => { const n = new Set(prev); n.delete(programId); return n; }); }
+    }
   };
 
   const onSubmit = async (e: FormEvent) => {
@@ -211,7 +245,11 @@ export default function AdminCourses() {
                   </div>
                   {c.code && <span className="text-xs font-bold text-brand uppercase tracking-wider">{c.code}</span>}
                   <h3 className="font-bold text-ink text-[15px] leading-snug mt-1 mb-2">{title}</h3>
-                  {pTitle && <p className="text-xs text-slate mb-1">{pTitle}</p>}
+                  {c.linkedProgramNames ? (
+                    <p className="text-xs text-slate mb-1">{c.linkedProgramNames}</p>
+                  ) : pTitle ? (
+                    <p className="text-xs text-slate mb-1">{pTitle}</p>
+                  ) : null}
                   {lecName && <p className="text-xs text-gray-400">{lang === "en" ? "Lecturer:" : "Enseignant:"} {lecName}</p>}
                   <div className="flex items-center gap-1 mt-3 text-xs text-gray-400">
                     <Users className="w-3.5 h-3.5" strokeWidth={2} />{c.studentCount ?? 0} {lang === "en" ? "student(s)" : "étudiant(s)"}
@@ -271,6 +309,36 @@ export default function AdminCourses() {
               </select>
             </div>
           </div>
+
+          {editingId ? (
+            <div>
+              <label className="label">{lang === "en" ? "Programs This Course Belongs To" : "Programmes Auxquels Ce Cours Appartient"}</label>
+              <div className="border border-gray-200 rounded-xl max-h-44 overflow-y-auto divide-y divide-gray-50">
+                {programs.map(p => (
+                  <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" checked={linkedProgramIds.has(p.id)} onChange={() => toggleProgramLink(p.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy/30" />
+                    <span className="text-ink">{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</span>
+                  </label>
+                ))}
+                {programs.length === 0 && <p className="text-xs text-gray-400 px-3 py-3">{lang === "en" ? "No programs exist yet." : "Aucun programme pour le moment."}</p>}
+              </div>
+              <p className="text-xs text-slate mt-2">
+                <span className="font-semibold text-ink">{lang === "en" ? "Selected: " : "Sélectionnés : "}</span>
+                {linkedProgramIds.size === 0
+                  ? (lang === "en" ? "None yet" : "Aucun pour le moment")
+                  : programs.filter(p => linkedProgramIds.has(p.id)).map(p => (lang === "fr" && p.title_fr) ? p.title_fr : p.title).join(", ")}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {lang === "en" ? "A course can belong to more than one program — check or uncheck to add or remove it here." : "Un cours peut appartenir à plusieurs programmes — cochez ou décochez pour l'ajouter ou le retirer."}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs text-slate">
+              {lang === "en" ? "Save this course first, then reopen it to link it to multiple programs." : "Enregistrez d'abord ce cours, puis rouvrez-le pour le lier à plusieurs programmes."}
+            </div>
+          )}
+
           <div>
             <label className="label">{lang === "en" ? "Duration" : "Durée"}</label>
             <input type="text" value={form.duration} onChange={e => setF("duration", e.target.value)} placeholder={lang === "en" ? "e.g. 3 Weeks" : "ex. 3 semaines"} className="input" />

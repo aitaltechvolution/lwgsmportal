@@ -281,11 +281,11 @@ function Footer() {
             </div>
             <p className="text-xs leading-relaxed mb-3">
               {lang === "en"
-                ? "Raising men and women totally sold out to God — equipping kingdom leaders to serve with excellence, integrity and purpose in ministry and marketplace across the nations."
-                : "Former des hommes et des femmes entièrement consacrés à Dieu — équiper les leaders du Royaume pour servir avec excellence, intégrité et vocation dans le ministère et le marché à travers les nations."}
+                ? "To raise a generation of Spirit-filled, biblically grounded, and transformational leaders whocarry God's presence, advance His Kingdom, and impact nations through Christ-centeredministry and service"
+                : ""}
             </p>
             <p className="text-xs text-amber-400/80 italic">
-              {lang === "en" ? "Excellence · Integrity · Purpose" : "Excellence · Intégrité · Vocation"}
+              {lang === "en" ? "Equipping Saints • Raising Kingdom Leaders • Transforming Nations" : ""}
             </p>
           </div>
 
@@ -342,7 +342,7 @@ function Footer() {
         {/* Contact strip */}
         <div className="border-t border-white/10 pt-5 pb-3">
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-white/40 mb-4">
-            <span>📍 Police Barracks, Eleyele, Ibadan, Nigeria</span>
+            <span>📍 Police Head Quaters, Eleyele, Ibadan, Nigeria</span>
             <a href="tel:+2348110652969" className="hover:text-amber-400 transition-colors">📞 +234 811 065 2969</a>
             <a href="tel:+2347063730930" className="hover:text-amber-400 transition-colors">📞 +234 706 373 0930</a>
             <a href="tel:+2295779696" className="hover:text-amber-400 transition-colors">📞 +229 577 969 63</a>

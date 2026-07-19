@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useAuth, flushPendingProfile } from "@/contexts/AuthContext";
+import { useAuth, flushPendingProfile, flushPendingInvite } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import AuthCard from "@/components/AuthCard";
 import { useToast } from "@/contexts/ToastContext";
@@ -29,6 +29,7 @@ export default function Login() {
         // If this user just confirmed their email, we may have pending
         // profile data saved in localStorage before confirmation.
         await flushPendingProfile(userData.user.id, userData.user.email ?? email);
+        await flushPendingInvite(userData.user.id);
 
         const { data: prof } = await supabase
           .from("profiles")
