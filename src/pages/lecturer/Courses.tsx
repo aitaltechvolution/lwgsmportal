@@ -59,11 +59,18 @@ export default function LecturerCourses() {
   const loadCourses = async () => {
     if (!profile?.id) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("courses")
       .select("*, programs(title, title_fr)")
       .eq("lecturer_id", profile.id)
       .order("created_at", { ascending: false });
+
+    if (error) {
+      showToast("error", lang === "en" ? `Could not load your courses: ${error.message}` : `Erreur : ${error.message}`);
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
 
     const courseList = (data ?? []) as unknown as Course[];
 

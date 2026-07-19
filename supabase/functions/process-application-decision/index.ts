@@ -35,7 +35,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL = "admissions@lwgsm.livingwatersglobalministry.org";
-const SITE_URL = Deno.env.get("SITE_URL") ?? "https://school.livingwatersglobalministry.org";
+const SITE_URL = Deno.env.get("SITE_URL") ?? "https://lwgsm.livingwatersglobalministry.org";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

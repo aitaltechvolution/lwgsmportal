@@ -58,6 +58,10 @@ export default function AdminFaculty() {
   const [form, setForm] = useState({ full_name: "", title: "", email: "", password: "", phone: "", country: "" });
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Manage Courses modal (existing lecturers)
+  const [manageLecturer, setManageLecturer] = useState<LecturerRow | null>(null);
+  const [assignedCourseIds, setAssignedCourseIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   // ✅ FIX #12: After creation, show prompt asking admin if they want to switch to lecturer account
@@ -95,6 +99,38 @@ export default function AdminFaculty() {
 
   const toggleCourse = (id: string) =>
     setSelectedCourses(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const openManageCourses = (l: LecturerRow) => {
+    setManageLecturer(l);
+    setAssignedCourseIds(new Set(allCourses.filter(c => c.lecturer_id === l.id).map(c => c.id)));
+  };
+
+  const toggleAssignedCourse = async (courseId: string) => {
+    if (!manageLecturer) return;
+    const isAssigned = assignedCourseIds.has(courseId);
+    setAssignedCourseIds(prev => {
+      const next = new Set(prev);
+      isAssigned ? next.delete(courseId) : next.add(courseId);
+      return next;
+    });
+    const { error } = await supabase.from("courses")
+      .update({ lecturer_id: isAssigned ? null : manageLecturer.id })
+      .eq("id", courseId);
+    if (error) {
+      showToast("error", error.message);
+      setAssignedCourseIds(prev => {
+        const next = new Set(prev);
+        isAssigned ? next.add(courseId) : next.delete(courseId);
+        return next;
+      });
+    } else {
+      setAllCourses(prev => prev.map(c => c.id === courseId ? { ...c, lecturer_id: isAssigned ? null : manageLecturer.id } : c));
+      setLecturers(prev => prev.map(l => {
+        if (l.id !== manageLecturer.id) return l;
+        return { ...l, courseCount: (l.courseCount ?? 0) + (isAssigned ? -1 : 1) };
+      }));
+    }
+  };
 
   const onAddLecturer = async (e: FormEvent) => {
     e.preventDefault();
@@ -279,6 +315,9 @@ export default function AdminFaculty() {
                     </td>
                     <td className="px-5 py-3.5 text-gray-400 text-xs hidden lg:table-cell">{fmtDate(l.created_at)}</td>
                     <td className="px-5 py-3.5 text-right">
+                      <button onClick={() => openManageCourses(l)} className="text-gray-400 hover:text-navy transition-colors p-1.5 rounded-lg hover:bg-navy/5 mr-1" title={lang === "en" ? "Manage Courses" : "Gérer les Cours"}>
+                        <BookOpen className="w-4 h-4" strokeWidth={2} />
+                      </button>
                       <button onClick={() => onDelete(l)} className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50">
                         <Trash2 className="w-4 h-4" strokeWidth={2} />
                       </button>
@@ -414,6 +453,38 @@ export default function AdminFaculty() {
               </button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Manage Courses modal — add/remove courses assigned to an existing lecturer */}
+      <Modal open={!!manageLecturer} onClose={() => setManageLecturer(null)}
+        title={manageLecturer ? `${lang === "en" ? "Courses for" : "Cours de"} ${manageLecturer.full_name}` : ""} maxWidth="max-w-lg">
+        {manageLecturer && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate">
+              {lang === "en" ? "Check or uncheck to assign or unassign a course to this lecturer." : "Cochez ou décochez pour assigner ou retirer un cours à cet enseignant."}
+            </p>
+            <div className="border border-gray-200 rounded-xl max-h-80 overflow-y-auto divide-y divide-gray-50">
+              {allCourses.map(c => {
+                const isAssigned = assignedCourseIds.has(c.id);
+                const takenByOther = c.lecturer_id && c.lecturer_id !== manageLecturer.id && !isAssigned;
+                return (
+                  <label key={c.id} className={`flex items-center gap-2.5 px-3 py-2.5 text-sm ${takenByOther ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50 cursor-pointer"}`}>
+                    <input type="checkbox" checked={isAssigned} disabled={!!takenByOther}
+                      onChange={() => toggleAssignedCourse(c.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy/30" />
+                    <span className="text-ink font-medium">{c.title}</span>
+                    {c.code && <span className="text-xs text-gray-400">{c.code}</span>}
+                    {takenByOther && <span className="ml-auto text-xs text-red-400">{lang === "en" ? "Assigned elsewhere" : "Assigné ailleurs"}</span>}
+                  </label>
+                );
+              })}
+              {allCourses.length === 0 && <p className="text-xs text-gray-400 px-3 py-3">{lang === "en" ? "No courses exist yet." : "Aucun cours pour le moment."}</p>}
+            </div>
+            <button type="button" onClick={() => setManageLecturer(null)} className="btn-primary w-full">
+              {lang === "en" ? "Done" : "Terminé"}
+            </button>
+          </div>
         )}
       </Modal>
     </AdminLayout>
