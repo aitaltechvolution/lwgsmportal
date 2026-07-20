@@ -28,7 +28,7 @@ type Method = "paystack" | "bank_transfer";
 
 export default function PaymentModal({ open, onClose, lang, onCompleted }: Props) {
   const { profile } = useAuth();
-  const { exchangeRate, format } = useCurrency();
+  const { exchangeRate, format, currency } = useCurrency();
   const { showToast } = useToast();
   const { initiate } = usePaystackPayment();
 
@@ -38,6 +38,11 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fees, setFees] = useState<Record<string, number>>({});
+  // Exact Naira amount as entered by the admin for fixed fees that are
+  // NGN-native (currently just registration). Charges/records must use
+  // this verbatim rather than round-tripping it through USD conversion,
+  // which drifts the figure away from what the admin actually set.
+  const [fixedNgn, setFixedNgn] = useState<Record<string, number>>({});
   const [publicKey, setPublicKey] = useState("");
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -56,14 +61,21 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
       .in("key", ["fee_reg_certificate", "fee_certificate", "paystack_public_key"])
       .then(({ data }) => {
         const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+        // fee_reg_certificate is entered by the admin in Naira (see the
+        // "(₦)" label in Settings) — convert to its USD-equivalent since
+        // this modal's "Amount (USD)" field, and the Paystack charge it
+        // feeds, are both USD-based. fee_certificate is already USD, so
+        // it's left as-is.
+        const feeRegNgn = Number(map.get("fee_reg_certificate") ?? 10000);
         setFees({
           // Registration fees are now per-programme-type and tied to a
           // specific course (see the registration gate on CourseDetail).
           // This generic modal only covers the Certificate-track default
           // for a standalone registration payment made outside that flow.
-          fee_registration: Number(map.get("fee_reg_certificate") ?? 10000),
+          fee_registration: exchangeRate ? feeRegNgn / exchangeRate : feeRegNgn,
           fee_certificate: Number(map.get("fee_certificate") ?? 0),
         });
+        setFixedNgn({ fee_registration: feeRegNgn });
         setPublicKey(map.get("paystack_public_key") ?? "");
       });
     supabase
@@ -72,7 +84,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
       .eq("is_active", true)
       .order("sort_order")
       .then(({ data }) => setBankAccounts((data ?? []) as BankAccount[]));
-  }, [open]);
+  }, [open, exchangeRate]);
 
   // Pre-fill (and lock) the amount for fixed-fee types.
   useEffect(() => {
@@ -88,6 +100,10 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
 
   const amountNum = Number(amount);
   const amountValid = amountNum > 0;
+  // Show accounts in the student's selected currency; if the school has
+  // none in that currency, fall back to NGN rather than showing nothing.
+  const matchingAccounts = bankAccounts.filter(a => a.currency === currency);
+  const displayAccounts = matchingAccounts.length > 0 ? matchingAccounts : bankAccounts.filter(a => a.currency === "NGN");
 
   const onCopy = async (text: string, id: string) => {
     try {
@@ -108,6 +124,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
       const result = await initiate({
         email: profile.email,
         amountUsd: amountNum,
+        amountNgn: selectedType.feeSettingKey ? fixedNgn[selectedType.feeSettingKey] : undefined,
         exchangeRate,
         studentId: profile.id,
         paymentType: type,
@@ -136,7 +153,9 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
     setSubmitting(true);
     setError(null);
     try {
-      const amountNgn = Math.round(amountNum * exchangeRate * 100) / 100;
+      const amountNgn = (selectedType.feeSettingKey && fixedNgn[selectedType.feeSettingKey])
+        ? fixedNgn[selectedType.feeSettingKey]
+        : Math.round(amountNum * exchangeRate * 100) / 100;
       const reference = `bank-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const { error: insErr } = await supabase.from("payments").insert({
         student_id: profile.id,
@@ -234,13 +253,13 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
 
           {method === "bank_transfer" && (
             <div className="space-y-3">
-              {bankAccounts.length === 0 ? (
+              {displayAccounts.length === 0 ? (
                 <div className="bg-yellow-50 border border-yellow-100 rounded-xl px-4 py-3 text-sm text-yellow-700 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" strokeWidth={2} />
                   {lang === "en" ? "No bank accounts are configured yet. Please contact finance." : "Aucun compte bancaire configuré. Contactez la finance."}
                 </div>
               ) : (
-                bankAccounts.map((acc) => (
+                displayAccounts.map((acc) => (
                   <div key={acc.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-ink text-sm">{acc.bank_name}</span>
@@ -272,7 +291,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
               {submitting ? (lang === "en" ? "Processing…" : "Traitement…") : (lang === "en" ? "Pay Online" : "Payer en Ligne")}
             </button>
           ) : (
-            <button onClick={onClaimTransfer} disabled={submitting || !amountValid || bankAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
+            <button onClick={onClaimTransfer} disabled={submitting || !amountValid || displayAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <Check className="w-4 h-4" strokeWidth={2} />}
               {lang === "en" ? "I've Made the Transfer" : "J'ai Effectué le Virement"}
             </button>

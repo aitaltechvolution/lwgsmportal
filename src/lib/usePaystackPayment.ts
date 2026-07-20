@@ -6,6 +6,10 @@ interface InitiateArgs {
   email: string;
   amountUsd: number;
   exchangeRate: number; // USD -> NGN, locked in at the moment of payment
+  /** Exact Naira amount to charge/record, when one exists (e.g. an
+   *  admin-configured fixed fee). Takes priority over amountUsd * exchangeRate
+   *  so fixed fees never drift from the amount the admin actually set. */
+  amountNgn?: number;
   studentId: string;
   paymentType: string;
   publicKey: string;
@@ -35,9 +39,9 @@ function generateReference() {
  */
 export function usePaystackPayment() {
   const initiate = useCallback(async (args: InitiateArgs): Promise<InitiateResult> => {
-    const { email, amountUsd, exchangeRate, studentId, paymentType, publicKey, courseId } = args;
+    const { email, amountUsd, exchangeRate, amountNgn: amountNgnOverride, studentId, paymentType, publicKey, courseId } = args;
     const reference = generateReference();
-    const amountNgn = Math.round(amountUsd * exchangeRate * 100) / 100;
+    const amountNgn = amountNgnOverride ?? Math.round(amountUsd * exchangeRate * 100) / 100;
     const amountKobo = Math.round(amountNgn * 100);
 
     const { error: insErr } = await supabase.from("payments").insert({

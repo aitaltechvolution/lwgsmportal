@@ -32,7 +32,13 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// SUPABASE_SERVICE_ROLE_KEY is auto-injected by the platform and CANNOT be
+// overridden with `supabase secrets set` (reserved SUPABASE_ prefix — the
+// CLI silently skips it). If that auto-injected value is ever stale/invalid
+// (e.g. after migrating to the new publishable/secret key format), set a
+// custom secret instead: `supabase secrets set SERVICE_ROLE_KEY=<real secret key>`
+// and it'll be preferred here.
+const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL = "admissions@lwgsm.livingwatersglobalministry.org";
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://lwgsm.livingwatersglobalministry.org";
@@ -83,8 +89,19 @@ Deno.serve(async (req: Request) => {
     }
 
     const { data: app, error: appErr } = await admin.from("applications").select("*").eq("id", applicationId).maybeSingle();
-    if (appErr || !app) {
-      return new Response(JSON.stringify({ error: "Application not found." }), {
+    if (appErr) {
+      // TEMP DEBUG: surface the real DB/auth error so we can see what's
+      // actually failing (bad key, RLS, wrong id type, etc). Remove the
+      // `debug` field once this is diagnosed.
+      return new Response(JSON.stringify({
+        error: "Application lookup failed.",
+        debug: { message: appErr.message, code: appErr.code, details: appErr.details, hint: appErr.hint },
+      }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!app) {
+      return new Response(JSON.stringify({ error: "Application not found.", debug: { applicationId } }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

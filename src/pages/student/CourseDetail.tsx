@@ -66,7 +66,7 @@ export default function CourseDetail() {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { format } = useCurrency();
+  const { format, exchangeRate } = useCurrency();
 
   const [course, setCourse]           = useState<Course | null>(null);
   const [materials, setMaterials]     = useState<Material[]>([]);
@@ -78,6 +78,10 @@ export default function CourseDetail() {
   const [loading, setLoading]         = useState(true);
   const [hasPaidRegistration, setHasPaidRegistration] = useState<boolean | null>(null);
   const [registrationFee, setRegistrationFee] = useState<number>(10000);
+  // Authoritative Naira amount, exactly as entered by the admin — this is
+  // what actually gets charged/recorded. registrationFee (USD) is derived
+  // from it for display only and must never be converted back to NGN.
+  const [registrationFeeNgn, setRegistrationFeeNgn] = useState<number>(10000);
   const [viewingMat, setViewingMat]   = useState<Material | null>(null);
   const [readingMat, setReadingMat]   = useState<Material | null>(null);
 
@@ -117,7 +121,13 @@ export default function CourseDetail() {
     const progType = course?.programs?.type ?? "certificate";
     const feeMap = new Map((regFeeRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
     const feeKey = progType === "diploma" ? "fee_reg_diploma" : progType === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
-    setRegistrationFee(Number(feeMap.get(feeKey) ?? (progType === "certificate" ? 10000 : 0)));
+    // fee_reg_* settings are entered by the admin in Naira (see the "(₦)"
+    // labels in Settings), but registrationFee feeds format()/the Paystack
+    // charge as a USD amount everywhere downstream — convert here, once,
+    // so the rest of the flow keeps working in USD like every other payment.
+    const feeNgn = Number(feeMap.get(feeKey) ?? (progType === "certificate" ? 10000 : 0));
+    setRegistrationFee(exchangeRate ? feeNgn / exchangeRate : feeNgn);
+    setRegistrationFeeNgn(feeNgn);
 
     // A registration payment counts for THIS course specifically if it's
     // tagged with this course_id — a payment made for a different course
@@ -156,7 +166,7 @@ export default function CourseDetail() {
     setEnrollment(eRes.data as Enrollment | null);
     setMatProgress(progressMap);
     setLoading(false);
-  }, [id, profile?.id]);
+  }, [id, profile?.id, exchangeRate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -272,7 +282,7 @@ export default function CourseDetail() {
             : "L'accès au contenu des cours nécessite le paiement et la confirmation de vos frais d'inscription. Une fois confirmé, ce cours se déverrouillera automatiquement."}
           action={
             <Link
-              to={`/student/payments?registerCourse=${id}&amount=${registrationFee}&courseTitle=${encodeURIComponent((lang === "fr" && course.title_fr) ? course.title_fr : course.title)}`}
+              to={`/student/payments?registerCourse=${id}&amount=${registrationFee}&amountNgn=${registrationFeeNgn}&courseTitle=${encodeURIComponent((lang === "fr" && course.title_fr) ? course.title_fr : course.title)}`}
               className="btn-primary">
               {lang === "en" ? `Pay Registration Fee (${format(registrationFee)})` : `Payer les Frais d'Inscription (${format(registrationFee)})`}
             </Link>

@@ -9,9 +9,10 @@ import {
 import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useToast } from "@/contexts/ToastContext";
+import { useConfirm } from "@/contexts/ConfirmContext";
 import CurrencyToggle from "@/components/CurrencyToggle";
 import ReceiptModal from "@/components/ReceiptModal";
-import { PAYMENT_TYPES } from "@/lib/constants";
+import { PAYMENT_TYPES, CURRENCIES } from "@/lib/constants";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
@@ -21,6 +22,7 @@ interface Payment {
   id: string;
   amount: number;
   amount_usd: number | null;
+  amount_ngn: number | null;
   currency: string;
   type: string;
   status: "pending" | "success" | "failed";
@@ -31,6 +33,7 @@ interface Payment {
   paid_at: string | null;
   created_at: string;
   confirmed_at: string | null;
+  course_id: string | null;
   profiles?: { full_name: string; email: string } | null;
 }
 
@@ -49,8 +52,9 @@ const CHART_COLORS = ["#1A2456", "#C9A227", "#16a34a", "#9333ea", "#dc2626"];
 export default function AdminFinance() {
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { format } = useCurrency();
+  const { format, currency } = useCurrency();
   const { showToast } = useToast();
+  const confirm = useConfirm();
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,10 +65,39 @@ export default function AdminFinance() {
   const [search, setSearch] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [receiptFor, setReceiptFor] = useState<Payment | null>(null);
+  // course_id -> program title, built from separate lookups rather than a
+  // PostgREST embedded join (payments.course_id has no declared FK, so
+  // `courses(...)` embedding fails outright and was silently emptying the
+  // whole payments list — this two-step fetch can't break the main query).
+  const [programTitles, setProgramTitles] = useState<Record<string, string>>({});
 
   const load = () => {
     supabase.from("payments").select("*, profiles!payments_student_id_fkey(full_name, email)").order("created_at", { ascending: false })
-      .then(({ data }) => { setPayments((data ?? []) as unknown as Payment[]); setLoading(false); });
+      .then(({ data }) => {
+        const rows = (data ?? []) as unknown as Payment[];
+        setPayments(rows);
+        setLoading(false);
+        loadProgramTitles(rows);
+      });
+  };
+
+  const loadProgramTitles = async (rows: Payment[]) => {
+    const courseIds = Array.from(new Set(rows.map(p => p.course_id).filter((id): id is string => !!id)));
+    if (courseIds.length === 0) return;
+    const { data: courses } = await supabase.from("courses").select("id, title, title_fr, program_id").in("id", courseIds);
+    if (!courses) return;
+    const programIds = Array.from(new Set(courses.map((c: { program_id: string | null }) => c.program_id).filter((id): id is string => !!id)));
+    const { data: programs } = programIds.length
+      ? await supabase.from("programs").select("id, title, title_fr").in("id", programIds)
+      : { data: [] as { id: string; title: string; title_fr: string | null }[] };
+    const programMap = new Map((programs ?? []).map((pr: { id: string; title: string; title_fr: string | null }) => [pr.id, pr]));
+    const map: Record<string, string> = {};
+    (courses as { id: string; title: string; title_fr: string | null; program_id: string | null }[]).forEach(c => {
+      const program = c.program_id ? programMap.get(c.program_id) : null;
+      const title = program ? ((lang === "fr" && program.title_fr) || program.title) : ((lang === "fr" && c.title_fr) || c.title);
+      map[c.id] = title;
+    });
+    setProgramTitles(map);
   };
 
   useEffect(() => { load(); }, []);
@@ -72,6 +105,15 @@ export default function AdminFinance() {
   // amount_usd is the canonical figure; amount/currency are kept for legacy
   // rows recorded before the USD ledger migration (treated as already USD).
   const usdOf = (p: Payment) => p.amount_usd ?? p.amount;
+  // Registration fees are entered by the admin in exact Naira. amount_usd
+  // is only a derived approximation of that for USD/EUR display — feeding
+  // it back through format() when the display currency is NGN re-converts
+  // it and can drift by a few naira. Show the authoritative amount_ngn
+  // directly whenever the display currency is NGN.
+  const fmtAmount = (p: Payment) =>
+    currency === "NGN" && p.amount_ngn != null
+      ? `${CURRENCIES.find(c => c.code === "NGN")!.symbol}${p.amount_ngn.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : format(usdOf(p));
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
 
   const filtered = useMemo(() => {
@@ -93,6 +135,16 @@ export default function AdminFinance() {
 
   const totalRevenue = payments.filter(p => p.status === "success").reduce((s, p) => s + usdOf(p), 0);
   const totalPending = payments.filter(p => p.status === "pending").reduce((s, p) => s + usdOf(p), 0);
+  // Same drift as the row-level amounts: amount_usd is a derived
+  // approximation, so summing it and re-converting via format() drifts
+  // the NGN total by a few naira. Sum the exact amount_ngn figures
+  // instead whenever the display currency is NGN.
+  const totalRevenueNgn = payments.filter(p => p.status === "success").reduce((s, p) => s + (p.amount_ngn ?? 0), 0);
+  const totalPendingNgn = payments.filter(p => p.status === "pending").reduce((s, p) => s + (p.amount_ngn ?? 0), 0);
+  const fmtTotal = (usd: number, ngn: number) =>
+    currency === "NGN"
+      ? `${CURRENCIES.find(c => c.code === "NGN")!.symbol}${ngn.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : format(usd);
 
   // Breakdown by payment type (successful payments only)
   const byType = useMemo(() => {
@@ -124,7 +176,23 @@ export default function AdminFinance() {
     return months.map(m => ({ name: m.label, total: Math.round(m.total * 100) / 100 }));
   }, [payments]);
 
-  const onConfirmTransfer = async (p: Payment) => {
+  const onConfirmPayment = async (p: Payment) => {
+    // Bank transfers are routinely confirmed manually — that's the whole
+    // point of that flow. Manually marking a Paystack payment paid skips
+    // its normal server-side verification against Paystack's API, so
+    // require an explicit admin confirmation first to avoid accidental
+    // double-crediting or marking an unpaid transaction as paid.
+    if (p.method !== "bank_transfer") {
+      const ok = await confirm({
+        title: lang === "en" ? "Confirm Paystack Payment?" : "Confirmer le Paiement Paystack ?",
+        message: lang === "en"
+          ? "This marks the payment as paid without re-verifying it against Paystack. Only do this if you've confirmed the charge went through on your Paystack dashboard (e.g. after a network failure on the student's side)."
+          : "Cela marque le paiement comme payé sans revérification auprès de Paystack. À faire uniquement si vous avez confirmé le paiement sur votre tableau de bord Paystack.",
+        confirmLabel: lang === "en" ? "Yes, mark as paid" : "Oui, marquer comme payé",
+        tone: "warning",
+      });
+      if (!ok) return;
+    }
     setConfirmingId(p.id);
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -133,10 +201,10 @@ export default function AdminFinance() {
         .update({ status: "success", paid_at: new Date().toISOString(), confirmed_by: userData.user?.id ?? null, confirmed_at: new Date().toISOString() })
         .eq("id", p.id);
       if (error) throw error;
-      showToast("success", lang === "en" ? "Transfer confirmed." : "Virement confirmé.");
+      showToast("success", lang === "en" ? "Payment confirmed." : "Paiement confirmé.");
       load();
     } catch {
-      showToast("error", lang === "en" ? "Could not confirm this transfer." : "Échec de la confirmation.");
+      showToast("error", lang === "en" ? "Could not confirm this payment." : "Échec de la confirmation.");
     } finally {
       setConfirmingId(null);
     }
@@ -193,8 +261,8 @@ export default function AdminFinance() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 stagger-children">
-        <div className="card p-5"><DollarSign className="w-5 h-5 text-green-600 mb-2" strokeWidth={2} /><div className="text-xl font-black text-green-700">{format(totalRevenue)}</div><div className="text-xs text-slate mt-1">{lang === "en" ? "Total Revenue" : "Revenu Total"}</div></div>
-        <div className="card p-5"><TrendingUp className="w-5 h-5 text-yellow-600 mb-2" strokeWidth={2} /><div className="text-xl font-black text-yellow-700">{format(totalPending)}</div><div className="text-xs text-slate mt-1">{lang === "en" ? "Pending" : "En attente"}</div></div>
+        <div className="card p-5"><DollarSign className="w-5 h-5 text-green-600 mb-2" strokeWidth={2} /><div className="text-xl font-black text-green-700">{fmtTotal(totalRevenue, totalRevenueNgn)}</div><div className="text-xs text-slate mt-1">{lang === "en" ? "Total Revenue" : "Revenu Total"}</div></div>
+        <div className="card p-5"><TrendingUp className="w-5 h-5 text-yellow-600 mb-2" strokeWidth={2} /><div className="text-xl font-black text-yellow-700">{fmtTotal(totalPending, totalPendingNgn)}</div><div className="text-xs text-slate mt-1">{lang === "en" ? "Pending" : "En attente"}</div></div>
         <div className="card p-5"><CreditCard className="w-5 h-5 text-navy mb-2" strokeWidth={2} /><div className="text-xl font-black text-navy">{payments.length}</div><div className="text-xs text-slate mt-1">{lang === "en" ? "Transactions" : "Transactions"}</div></div>
       </div>
 
@@ -294,19 +362,21 @@ export default function AdminFinance() {
                       <td className="px-5 py-3.5"><p className="font-semibold text-ink">{student?.full_name ?? "—"}</p><p className="text-xs text-gray-400">{student?.email}</p></td>
                       <td className="px-5 py-3.5 text-ink">{typeLabel(p.type, lang)}</td>
                       <td className="px-5 py-3.5 text-xs text-slate capitalize">{p.method === "bank_transfer" ? (lang === "en" ? "Bank Transfer" : "Virement") : "Paystack"}</td>
-                      <td className="px-5 py-3.5 font-bold text-ink whitespace-nowrap">{format(usdOf(p))}</td>
+                      <td className="px-5 py-3.5 font-bold text-ink whitespace-nowrap">{fmtAmount(p)}</td>
                       <td className="px-5 py-3.5 text-xs text-gray-400 font-mono">{p.reference ?? "—"}</td>
                       <td className="px-5 py-3.5"><Badge color={STATUS_COLOR[p.status]}>{lang === "en" ? STATUS_LABEL[p.status].en : STATUS_LABEL[p.status].fr}</Badge></td>
                       <td className="px-5 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtDate(p.paid_at ?? p.created_at)}</td>
                       <td className="px-5 py-3.5">
-                        {p.status === "pending" && p.method === "bank_transfer" ? (
+                        {p.status === "pending" ? (
                           <button
-                            onClick={() => onConfirmTransfer(p)}
+                            onClick={() => onConfirmPayment(p)}
                             disabled={confirmingId === p.id}
                             className="flex items-center gap-1.5 text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap"
                           >
                             {confirmingId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2.5} /> : <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={2.5} />}
-                            {lang === "en" ? "Confirm Transfer" : "Confirmer"}
+                            {p.method === "bank_transfer"
+                              ? (lang === "en" ? "Confirm Transfer" : "Confirmer")
+                              : (lang === "en" ? "Confirm Payment" : "Confirmer le Paiement")}
                           </button>
                         ) : p.status === "success" ? (
                           <button onClick={() => setReceiptFor(p)} className="flex items-center gap-1.5 text-xs font-bold text-navy hover:text-brand transition-colors whitespace-nowrap">
@@ -332,6 +402,7 @@ export default function AdminFinance() {
           onClose={() => setReceiptFor(null)}
           payment={receiptFor}
           studentName={(receiptFor.profiles as { full_name?: string } | null)?.full_name ?? "—"}
+          programTitle={receiptFor.course_id ? (programTitles[receiptFor.course_id] ?? null) : null}
           lang={lang}
         />
       )}
