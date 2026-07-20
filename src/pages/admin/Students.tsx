@@ -21,6 +21,7 @@ interface StudentRow {
   created_at: string;
   program?: string | null;
   avatar_url?: string | null;
+  matric_number?: string | null;
 }
 
 export default function AdminStudents() {
@@ -46,7 +47,7 @@ export default function AdminStudents() {
     setLoading(true);
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, email, phone, country, status, created_at, avatar_url")
+      .select("id, full_name, email, phone, country, status, created_at, avatar_url, matric_number")
       .eq("role", "student")
       .order("created_at", { ascending: false });
 
@@ -197,6 +198,7 @@ export default function AdminStudents() {
               <thead>
                 <tr className="bg-gray-50/60 border-b border-gray-100">
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Name" : "Nom"}</th>
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "Matric No." : "N° Matricule"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Email" : "E-mail"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden lg:table-cell">{lang === "en" ? "Phone" : "Téléphone"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden lg:table-cell">{lang === "en" ? "Country" : "Pays"}</th>
@@ -217,6 +219,7 @@ export default function AdminStudents() {
                         <span className="font-semibold text-ink">{s.full_name}</span>
                       </div>
                     </td>
+                    <td className="px-5 py-3.5 text-gray-500 font-mono text-xs hidden md:table-cell">{s.matric_number ?? "—"}</td>
                     <td className="px-5 py-3.5 text-gray-400">{s.email}</td>
                     <td className="px-5 py-3.5 text-gray-400 hidden lg:table-cell">{s.phone ?? "—"}</td>
                     <td className="px-5 py-3.5 text-gray-400 hidden lg:table-cell">{s.country ?? "—"}</td>

@@ -9,6 +9,7 @@ import Programs from "@/pages/Programs";
 import ProgramDetail from "@/pages/ProgramDetail";
 import About from "@/pages/About";
 import Contact from "@/pages/Contact";
+import FAQ from "@/pages/FAQ";
 import Admissions from "@/pages/Admissions";
 import Verify from "@/pages/Verify";
 import Login from "@/pages/auth/Login";
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="/programs/:id" element={<ProgramDetail />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/faq" element={<FAQ />} />
         <Route path="/admissions" element={<Admissions />} />
         <Route path="/verify" element={<Verify />} />
         <Route path="/login" element={<Login />} />

@@ -4,7 +4,7 @@ import LecturerLayout from "@/components/LecturerLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Plus, BookOpen, Users, Settings, Loader2, Pencil } from "lucide-react";
+import { Plus, BookOpen, Users, Settings, Loader2, Pencil, Lock } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard, Modal, ToggleSwitch } from "@/components/ui/primitives";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useToast } from "@/contexts/ToastContext";
@@ -20,6 +20,7 @@ interface Course {
   duration: string | null;
   program_id: string | null;
   is_published: boolean;
+  lecturer_locked?: boolean;
   programs?: { title: string; title_fr?: string } | null;
   studentCount?: number;
 }
@@ -100,6 +101,7 @@ export default function LecturerCourses() {
   };
 
   const openEdit = (c: Course) => {
+    if (c.lecturer_locked) return;
     setEditingId(c.id);
     setTitleEn(c.title); setTitleFr(c.title_fr ?? ""); setCode(c.code ?? ""); setProgramId(c.program_id ?? "");
     setDescEn(c.description ?? ""); setDescFr(c.description_fr ?? ""); setObjectives(c.objectives ?? ""); setDuration(c.duration ?? "");
@@ -242,17 +244,29 @@ export default function LecturerCourses() {
                     label={lang === "en" ? "Published" : "Publié"}
                   />
                   <div className="flex items-center gap-3">
-                    <button onClick={() => openEdit(c)} className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors">
-                      <Pencil className="w-4 h-4" strokeWidth={2} />
-                      {lang === "en" ? "Edit" : "Modifier"}
-                    </button>
-                    <Link
-                      to={`/lecturer/courses/${c.id}/materials`}
-                      className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors"
-                    >
-                      <Settings className="w-4 h-4" strokeWidth={2} />
-                      {lang === "en" ? "Manage" : "Gérer"}
-                    </Link>
+                    {c.lecturer_locked ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 text-sm font-bold text-gray-400 cursor-not-allowed"
+                        title={lang === "en" ? "This course was locked by an admin" : "Ce cours a été verrouillé par un administrateur"}
+                      >
+                        <Lock className="w-4 h-4" strokeWidth={2} />
+                        {lang === "en" ? "Restricted" : "Restreint"}
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => openEdit(c)} className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors">
+                          <Pencil className="w-4 h-4" strokeWidth={2} />
+                          {lang === "en" ? "Edit" : "Modifier"}
+                        </button>
+                        <Link
+                          to={`/lecturer/courses/${c.id}/materials`}
+                          className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors"
+                        >
+                          <Settings className="w-4 h-4" strokeWidth={2} />
+                          {lang === "en" ? "Manage" : "Gérer"}
+                        </Link>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

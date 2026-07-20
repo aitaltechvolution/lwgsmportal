@@ -26,6 +26,7 @@ interface Material {
   id: string; title_en: string; title_fr: string | null; type: "note" | "video" | "file";
   url: string | null; content_en: string | null; content_fr: string | null;
   is_premium: boolean; price: number | null; sort_order: number | null;
+  allow_download: boolean;
 }
 interface Assignment {
   id: string; title_en: string; title_fr: string | null;
@@ -91,6 +92,11 @@ export default function CourseDetail() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeMatRef = useRef<Material | null>(null);
   const accSecondsRef = useRef<number>(0);
+  // Real wall-clock timestamp (ms) of when the current viewing session
+  // started — used to compute exact elapsed time instead of relying on
+  // the 5s interval tick alone, so short sessions aren't lost. See
+  // startTracking/stopTracking below.
+  const sessionStartRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     if (!id || !profile?.id) return;
@@ -177,11 +183,18 @@ export default function CourseDetail() {
     if (timerRef.current) clearInterval(timerRef.current);
     activeMatRef.current = mat;
     accSecondsRef.current = matProgress[mat.id]?.seconds ?? 0;
+    sessionStartRef.current = Date.now();
 
-    // Tick every 5 seconds — saves to DB incrementally
-    timerRef.current = setInterval(async () => {
-      accSecondsRef.current += 5;
-      const seconds = accSecondsRef.current;
+    // Persists the elapsed time for the *current* session (base seconds +
+    // however long this open has actually lasted, computed from a real
+    // timestamp rather than counting completed 5s ticks). This is what
+    // lets a single viewing session — long or short — count correctly,
+    // instead of requiring the material to be reopened repeatedly before
+    // enough 5-second ticks had accumulated to cross the threshold.
+    const persist = async () => {
+      if (!sessionStartRef.current || !profile?.id) return;
+      const elapsed = Math.round((Date.now() - sessionStartRef.current) / 1000);
+      const seconds = accSecondsRef.current + elapsed;
       const { data } = await supabase.rpc("upsert_material_progress", {
         p_student_id: profile.id,
         p_material_id: mat.id,
@@ -197,16 +210,42 @@ export default function CourseDetail() {
           await refreshProgress();
         }
       }
-    }, 5000);
+    };
+
+    // Tick every 5 seconds for long-running sessions — saves incrementally
+    // so progress isn't lost on a page refresh or crash mid-session.
+    timerRef.current = setInterval(persist, 5000);
 
     logUsageEvent(profile.id, "material_view", { courseId: id, materialId: mat.id });
   }, [profile?.id, id, matProgress]);
 
-  // Stop tracking when material is closed
-  const stopTracking = useCallback(() => {
+  // Stop tracking when material is closed — always flush the exact time
+  // spent in this session (even if under 5 seconds) so progress is never
+  // silently dropped.
+  const stopTracking = useCallback(async () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    const mat = activeMatRef.current;
+    if (mat && profile?.id && id && sessionStartRef.current) {
+      const elapsed = Math.round((Date.now() - sessionStartRef.current) / 1000);
+      if (elapsed > 0) {
+        const seconds = accSecondsRef.current + elapsed;
+        const { data } = await supabase.rpc("upsert_material_progress", {
+          p_student_id: profile.id,
+          p_material_id: mat.id,
+          p_course_id: id,
+          p_seconds: seconds,
+          p_type: mat.type,
+        });
+        if (data && data[0]) {
+          const row = data[0] as { seconds_spent: number; completed: boolean };
+          setMatProgress(prev => ({ ...prev, [mat.id]: { seconds: row.seconds_spent, completed: row.completed } }));
+          if (row.completed) await refreshProgress();
+        }
+      }
+    }
+    sessionStartRef.current = null;
     activeMatRef.current = null;
-  }, []);
+  }, [profile?.id, id]);
 
   // Recalculate progress: materials + assignments.
   // Calls a SECURITY DEFINER RPC so it always persists regardless
@@ -224,7 +263,7 @@ export default function CourseDetail() {
   }, [profile?.id, id]);
 
   // Cleanup on unmount
-  useEffect(() => () => stopTracking(), [stopTracking]);
+  useEffect(() => () => { void stopTracking(); }, [stopTracking]);
 
   // Alias for opening materials  
   const markViewed = startTracking;
@@ -495,7 +534,8 @@ export default function CourseDetail() {
                               <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
                               {lang === "en" ? "View" : "Consulter"}
                             </button>
-                            {mat.url && (
+                            {/* Paid + unlocked, but download still requires explicit admin/lecturer permission */}
+                            {mat.url && mat.allow_download && (
                               <a
                                 href={mat.url} download target="_blank" rel="noopener noreferrer"
                                 className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors">
@@ -505,12 +545,23 @@ export default function CourseDetail() {
                             )}
                           </div>
                         ) : (
-                          <button
-                            onClick={() => openMaterial(mat)}
-                            className="flex-shrink-0 flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all">
-                            <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
-                            {mat.url ? (lang === "en" ? "View" : "Consulter") : (lang === "en" ? "Read" : "Lire")}
-                          </button>
+                          <div className="flex-shrink-0 flex items-center gap-2">
+                            <button
+                              onClick={() => openMaterial(mat)}
+                              className="flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all">
+                              <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
+                              {mat.url ? (lang === "en" ? "View" : "Consulter") : (lang === "en" ? "Read" : "Lire")}
+                            </button>
+                            {/* Free material: still restricted unless admin/lecturer explicitly allowed download */}
+                            {mat.url && mat.allow_download && (
+                              <a
+                                href={mat.url} download target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors">
+                                <Download className="w-3.5 h-3.5" strokeWidth={2.5} />
+                                {lang === "en" ? "Download" : "Télécharger"}
+                              </a>
+                            )}
+                          </div>
                         )}
                       </div>
                     );

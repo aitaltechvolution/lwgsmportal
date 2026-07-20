@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import {
   FileText, Video, Paperclip, Lock, Trash2, Pencil, UploadCloud,
-  Loader2, Plus, X, Eye, PencilLine, AlignLeft, GripVertical,
+  Loader2, Plus, X, Eye, PencilLine, AlignLeft, GripVertical, Download,
 } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow, ToggleSwitch } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
@@ -33,6 +33,7 @@ interface Material {
   content_fr: string | null;
   is_premium: boolean;
   price: number | null;
+  allow_download: boolean;
   sort_order: number | null;
   created_at: string;
 }
@@ -95,6 +96,7 @@ export default function CourseMaterials() {
   const [contentFr, setContentFr] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [price, setPrice] = useState("");
+  const [allowDownload, setAllowDownload] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export default function CourseMaterials() {
 
   const resetForm = () => {
     setEditingId(null); setTitleEn(""); setTitleFr(""); setType("note"); setSourceMode("upload");
-    setFile(null); setContentEn(""); setContentFr(""); setIsPremium(false); setPrice(""); setError(null);
+    setFile(null); setContentEn(""); setContentFr(""); setIsPremium(false); setPrice(""); setAllowDownload(false); setError(null);
   };
 
   const startEdit = (m: Material) => {
@@ -123,7 +125,7 @@ export default function CourseMaterials() {
     setTitleEn(m.title_en); setTitleFr(m.title_fr ?? ""); setType(m.type);
     setSourceMode(m.url ? "upload" : "type"); setFile(null);
     setContentEn(m.content_en ?? ""); setContentFr(m.content_fr ?? "");
-    setIsPremium(m.is_premium); setPrice(m.price ? String(m.price) : ""); setError(null);
+    setIsPremium(m.is_premium); setPrice(m.price ? String(m.price) : ""); setAllowDownload(m.allow_download ?? false); setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -196,6 +198,7 @@ export default function CourseMaterials() {
         content_fr: sourceMode === "type" ? (contentFr.trim() || null) : null,
         is_premium: isPremium,
         price: isPremium ? Number(price) : 0,
+        allow_download: allowDownload,
         sort_order: editingId
           ? (materials.find(m => m.id === editingId)?.sort_order ?? materials.length)
           : materials.length,
@@ -384,6 +387,19 @@ export default function CourseMaterials() {
                 </div>
               )}
 
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+                <div className="flex items-center gap-2">
+                  <Download className="w-4 h-4 text-green-600" strokeWidth={2} />
+                  <div>
+                    <span className="text-sm font-semibold text-ink block">{lang === "en" ? "Allow download" : "Autoriser le téléchargement"}</span>
+                    <span className="text-[11px] text-gray-400">
+                      {lang === "en" ? "Students can only view by default." : "Par défaut, les étudiants ne peuvent que consulter."}
+                    </span>
+                  </div>
+                </div>
+                <ToggleSwitch checked={allowDownload} onChange={setAllowDownload} />
+              </div>
+
               {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
 
               {uploadProgress !== null && (
@@ -469,6 +485,7 @@ export default function CourseMaterials() {
                           <span className="text-xs text-gray-400 font-bold w-5 text-center">{index + 1}</span>
                           <p className="font-semibold text-ink text-sm truncate">{title}</p>
                           {m.is_premium && <Badge color="yellow" icon={Lock}>{format(m.price ?? 0)}</Badge>}
+                          {m.allow_download && <Badge color="green" icon={Download}>{lang === "en" ? "Downloadable" : "Téléchargeable"}</Badge>}
                           {!m.url && <Badge color="blue" icon={AlignLeft}>{lang === "en" ? "Typed" : "Saisi"}</Badge>}
                         </div>
                         <p className={`text-[11px] font-medium mt-0.5 capitalize ${meta.text} opacity-70`}>{m.type}</p>

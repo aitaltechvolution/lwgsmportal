@@ -237,7 +237,7 @@ export default function About() {
             <h2 className="text-xl font-bold text-navy mb-3">{lang === "en" ? "Our Mission" : "Notre Mission"}</h2>
             <p className="text-slate leading-relaxed text-sm">
               {lang === "en"
-                ? "Living Waters Global School of Ministry exists to equip, train, and disciple believers throughsound biblical teaching, practical ministry training, leadership development, and spiritual formation, empowering them to fulfill their divine calling and become effective ambassadors of Christ in every sphere of influence."
+                ? "Living Waters Global School of Ministry exists to equip, train, and disciple believers through sound biblical teaching, practical ministry training, leadership development, and spiritual formation, empowering them to fulfill their divine calling and become effective ambassadors of Christ in every sphere of influence."
                 : "La Living Waters Global School of Ministry a pour mission d'équiper, de former et de faire des disciples à travers un enseignement biblique solide, une formation pratique au ministère, le développement du leadership et la formation spirituelle, afin de leur permettre d'accomplir leur vocation divine et de devenir des ambassadeurs efficaces du Christ dans chaque sphère d'influence."}
             </p>
           </div>
@@ -248,7 +248,7 @@ export default function About() {
             <h2 className="text-xl font-bold text-navy mb-3">{lang === "en" ? "Our Vision" : "Notre Vision"}</h2>
             <p className="text-slate leading-relaxed text-sm">
               {lang === "en"
-                ? "To raise a generation of Spirit-filled, biblically grounded, and transformational leaders whocarry God's presence, advance His Kingdom, and impact nations through Christ-centeredministry and service"
+                ? "To raise a generation of Spirit-filled, biblically grounded, and transformational leaders who carry God's presence, advance His Kingdom, and impact nations through Christ-centered ministry and service"
                 : "Susciter une génération de leaders remplis de l'Esprit, ancrés dans la Bible et transformationnels, qui portent la présence de Dieu, font progresser Son Royaume et impactent les nations à travers un ministère et un service centrés sur le Christ."}
             </p>
           </div>

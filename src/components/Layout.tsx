@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { to: "/programs",   en: "Programmes",  fr: "Programmes" },
   { to: "/about",      en: "About Us",    fr: "À Propos" },
   { to: "/admissions", en: "Admissions",  fr: "Admissions" },
+  { to: "/faq",         en: "FAQ",         fr: "FAQ" },
   { to: "/contact",    en: "Contact",     fr: "Contact" },
 ];
 
@@ -355,6 +356,7 @@ function Footer() {
             <span>© {new Date().getFullYear()} Living Waters Global School of Ministry. {lang === "en" ? "All rights reserved." : "Tous droits réservés."}</span>
             <div className="flex gap-4">
               <Link to="/verify" className="hover:text-amber-400 transition-colors">{lang === "en" ? "Verify Certificate" : "Vérifier Certificat"}</Link>
+              <Link to="/faq" className="hover:text-amber-400 transition-colors">FAQ</Link>
               <Link to="/contact" className="hover:text-amber-400 transition-colors">{lang === "en" ? "Contact" : "Contact"}</Link>
             </div>
           </div>

@@ -12,4 +12,5 @@ export interface Profile {
   language_pref: string;
   avatar_url: string | null;
   created_at: string;
+  matric_number?: string | null;
 }

@@ -2,7 +2,7 @@ import { useEffect, useState, FormEvent } from "react";
 import AdminLayout from "@/components/AdminLayout";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { ClipboardList, Plus, Pencil, Trash2, Loader2, Clock, ImageIcon, UploadCloud } from "lucide-react";
+import { ClipboardList, Plus, Pencil, Trash2, Loader2, Clock, ImageIcon, UploadCloud, Search } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard, Modal } from "@/components/ui/primitives";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useToast } from "@/contexts/ToastContext";
@@ -43,6 +43,7 @@ export default function AdminPrograms() {
   const { showToast } = useToast();
 
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -77,6 +78,15 @@ export default function AdminPrograms() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const filtered = programs.filter(p => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return p.title.toLowerCase().includes(q)
+      || (p.title_fr ?? "").toLowerCase().includes(q)
+      || p.type.toLowerCase().includes(q)
+      || (p.duration ?? "").toLowerCase().includes(q);
+  });
 
   const openCreate = () => {
     setEditingId(null); setForm({ ...EMPTY_FORM }); setError(null);
@@ -214,24 +224,30 @@ export default function AdminPrograms() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 animate-fade-in-up">
         <div>
           <h2 className="text-2xl font-black text-ink">{lang === "en" ? "Programs" : "Programmes"}</h2>
-          <p className="text-sm text-slate mt-0.5">{loading ? "…" : `${programs.length} programme(s)`}</p>
+          <p className="text-sm text-slate mt-0.5">{loading ? "…" : `${filtered.length} programme(s)`}</p>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <Plus className="w-4 h-4" strokeWidth={2.5} />
-          {lang === "en" ? "Create Program" : "Créer un Programme"}
-        </button>
+        <div className="flex gap-3">
+          <div className="relative sm:w-60">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
+            <input type="text" placeholder={lang === "en" ? "Search…" : "Rechercher…"} value={search} onChange={e => setSearch(e.target.value)} className="input pl-9" />
+          </div>
+          <button onClick={openCreate} className="btn-primary flex-shrink-0">
+            <Plus className="w-4 h-4" strokeWidth={2.5} />
+            {lang === "en" ? "Create Program" : "Créer un Programme"}
+          </button>
+        </div>
       </div>
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
-      ) : programs.length === 0 ? (
-        <EmptyState icon={ClipboardList} title={lang === "en" ? "No programs yet" : "Aucun programme"}
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={ClipboardList} title={lang === "en" ? (search ? "No programs found" : "No programs yet") : (search ? "Aucun programme trouvé" : "Aucun programme")}
           action={<button onClick={openCreate} className="btn-primary"><Plus className="w-4 h-4" strokeWidth={2.5} />{lang === "en" ? "Create Program" : "Créer"}</button>} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
-          {programs.map(p => {
+          {filtered.map(p => {
             const typeLabel = TYPE_LABEL[p.type] ?? { en: p.type, fr: p.type };
             const title = (lang === "fr" && p.title_fr) ? p.title_fr : p.title;
             return (

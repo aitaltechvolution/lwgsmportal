@@ -35,9 +35,8 @@ interface Assignment {
   questionCount?: number;
 }
 
-const TYPE_OPTIONS: { key: "assignment" | "exam" | "exam"; en: string; fr: string }[] = [
+const TYPE_OPTIONS: { key: "assignment" | "exam"; en: string; fr: string }[] = [
   { key: "assignment", en: "Assignment", fr: "Devoir" },
-  { key: "exam",       en: "exam",       fr: "exam" },
   { key: "exam",       en: "Exam",       fr: "Examen" },
 ];
 

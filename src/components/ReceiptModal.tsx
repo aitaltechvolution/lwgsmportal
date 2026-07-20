@@ -132,9 +132,26 @@ export default function ReceiptModal({ open, onClose, payment, studentName, prog
             <p className="text-xs text-gray-400 mt-1">{lang === "en" ? "Official Payment Receipt" : "Reçu de Paiement Officiel"}</p>
           </div>
 
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <StatusIcon className={`w-5 h-5 block ${status.color}`} strokeWidth={2} />
-            <span className={`font-bold text-sm leading-none ${status.color}`}>{lang === "en" ? status.en : status.fr}</span>
+          <div className="mb-6 flex justify-center">
+            {/* Table layout instead of flex+gap: html2canvas doesn't reliably
+                rasterize flexbox gap/alignment, which was causing the "Paid"
+                label to render below the icon instead of beside it in the
+                downloaded PDF. Table cells with vertical-align rasterize
+                correctly. */}
+            <table style={{ borderCollapse: "collapse" }}>
+              <tbody>
+                <tr>
+                  <td style={{ verticalAlign: "middle", paddingRight: 8 }}>
+                    <StatusIcon className={`w-5 h-5 block ${status.color}`} strokeWidth={2} />
+                  </td>
+                  <td style={{ verticalAlign: "middle" }}>
+                    <span className={`font-bold text-sm ${status.color}`} style={{ lineHeight: 1 }}>
+                      {lang === "en" ? status.en : status.fr}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <div className="border-t border-b border-dashed border-gray-200 py-4 space-y-3">
