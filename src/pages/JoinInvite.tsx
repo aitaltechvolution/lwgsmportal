@@ -22,6 +22,7 @@ interface CourseOption {
   id: string;
   title: string;
   code: string | null;
+  program_id: string | null;
 }
 
 export default function JoinInvite() {
@@ -45,7 +46,7 @@ export default function JoinInvite() {
       const [inviteRes, coursesRes] = await Promise.all([
         supabase.from("applications").select("id, applicant_name, applicant_email, phone, nationality, course_id, program_id, invite_used")
           .eq("invite_token", token).maybeSingle(),
-        supabase.from("courses").select("id, title, code").eq("is_published", true).order("title"),
+        supabase.from("courses").select("id, title, code, program_id").eq("is_published", true).order("title"),
       ]);
       setInvite(inviteRes.data as Invite | null);
       setCourses((coursesRes.data ?? []) as CourseOption[]);
@@ -81,8 +82,9 @@ export default function JoinInvite() {
       } else {
         const { data: userData } = await supabase.auth.getUser();
         if (userData.user) {
+          const chosenCourse = courses.find(c => c.id === courseId);
           await supabase.from("enrollments").upsert(
-            { student_id: userData.user.id, course_id: courseId, status: "active" },
+            { student_id: userData.user.id, course_id: courseId, program_id: chosenCourse?.program_id ?? null, status: "active" },
             { onConflict: "student_id,course_id" }
           );
           await supabase.from("applications").update({ invite_used: true }).eq("id", invite.id);

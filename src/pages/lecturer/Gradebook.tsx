@@ -35,6 +35,12 @@ interface GradeEntry {
   score: number | null;
 }
 
+interface SubmissionScore {
+  assignment_id: string;
+  student_id: string;
+  score: number | null;
+}
+
 function pctColor(score: number, max: number) {
   const p = (score / max) * 100;
   if (p >= 75) return "text-green-600";
@@ -52,6 +58,7 @@ export default function Gradebook() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<GradeEntry[]>([]);
+  const [submissionScores, setSubmissionScores] = useState<SubmissionScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
 
@@ -79,12 +86,23 @@ export default function Gradebook() {
         supabase.from("grades").select("*").eq("course_id", selectedCourse),
       ]);
 
-      setAssignments((asgRes.data ?? []) as Assignment[]);
+      const asgList = (asgRes.data ?? []) as Assignment[];
+      setAssignments(asgList);
       const studentList = ((enrRes.data ?? []) as unknown as { profiles?: { id: string; full_name: string; email: string } }[])
         .map((e) => e.profiles)
         .filter(Boolean) as Student[];
       setStudents(studentList);
       setGrades((gradeRes.data ?? []) as GradeEntry[]);
+
+      if (asgList.length > 0) {
+        const { data: subs } = await supabase
+          .from("submissions")
+          .select("assignment_id, student_id, score")
+          .in("assignment_id", asgList.map(a => a.id));
+        setSubmissionScores((subs ?? []) as SubmissionScore[]);
+      } else {
+        setSubmissionScores([]);
+      }
       setLoading(false);
     }
 
@@ -101,6 +119,16 @@ export default function Gradebook() {
   // certificate eligibility purposes.
 
   const getGradeEntry = (studentId: string) => grades.find(g => g.student_id === studentId);
+  const getSubmissionScore = (studentId: string, assignmentId: string) =>
+    submissionScores.find(s => s.student_id === studentId && s.assignment_id === assignmentId)?.score ?? null;
+  const getOverallPct = (studentId: string) => {
+    const scored = assignments
+      .map(a => ({ score: getSubmissionScore(studentId, a.id), max: a.max_score ?? 100 }))
+      .filter((s): s is { score: number; max: number } => s.score !== null);
+    if (scored.length === 0) return null;
+    const pct = scored.reduce((sum, s) => sum + (s.score / s.max) * 100, 0) / scored.length;
+    return Math.round(pct);
+  };
   const selectedCourseObj = courses.find(c => c.id === selectedCourse);
   const courseTitle = selectedCourseObj ? ((lang === "fr" && selectedCourseObj.title_fr) ? selectedCourseObj.title_fr : selectedCourseObj.title) : "";
 
@@ -206,18 +234,31 @@ export default function Gradebook() {
                   <tbody className="divide-y divide-gray-50">
                     {students.map((stu) => {
                       const entry = getGradeEntry(stu.id);
+                      const overallPct = getOverallPct(stu.id);
                       return (
                         <tr key={stu.id} className="hover:bg-gray-50/60 transition-colors">
                           <td className="px-5 py-3.5 sticky left-0 bg-white">
                             <div className="font-semibold text-ink">{stu.full_name}</div>
                             <div className="text-xs text-gray-400">{stu.email}</div>
                           </td>
-                          {assignments.map(a => (
-                            <td key={a.id} className="text-center px-4 py-3.5 text-gray-400 text-xs">—</td>
-                          ))}
+                          {assignments.map(a => {
+                            const score = getSubmissionScore(stu.id, a.id);
+                            const max = a.max_score ?? 100;
+                            return (
+                              <td key={a.id} className="text-center px-4 py-3.5 text-xs">
+                                {score !== null ? (
+                                  <span className={`font-bold ${pctColor(score, max)}`}>{score}<span className="text-gray-400">/{max}</span></span>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                              </td>
+                            );
+                          })}
                           <td className="text-center px-5 py-3.5">
                             {entry?.score !== null && entry?.score !== undefined ? (
                               <span className={`font-bold ${pctColor(entry.score, 100)}`}>{entry.score}<span className="text-gray-400 text-xs">/100</span></span>
+                            ) : overallPct !== null ? (
+                              <span className={`font-bold ${pctColor(overallPct, 100)}`}>{overallPct}<span className="text-gray-400 text-xs">%</span></span>
                             ) : (
                               <span className="text-gray-400 text-xs italic">{lang === "en" ? "Not graded" : "Non noté"}</span>
                             )}

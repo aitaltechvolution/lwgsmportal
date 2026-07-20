@@ -50,29 +50,6 @@ const corsHeaders = {
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-// Country name -> ISO-3166-1 alpha-2 code, for the matric number system
-// (LWGSM-{COUNTRY}-{PROGRAM}-{YEAR}-{SERIAL}). Keep in sync with the
-// COUNTRIES list in src/lib/constants.ts. Unrecognised countries fall
-// back to "XX" inside assign_matric_number/generate_matric_number.
-const COUNTRY_ISO_CODES: Record<string, string> = {
-  "Nigeria": "NG", "Ghana": "GH", "Kenya": "KE", "South Africa": "ZA", "Cameroon": "CM",
-  "Benin": "BJ", "Côte d'Ivoire": "CI", "Togo": "TG", "Senegal": "SN", "Egypt": "EG",
-  "Ethiopia": "ET", "Uganda": "UG", "Tanzania": "TZ", "Zambia": "ZM", "Zimbabwe": "ZW",
-  "Rwanda": "RW", "Sierra Leone": "SL", "Liberia": "LR",
-  "United States": "US", "Canada": "CA", "United Kingdom": "GB", "Ireland": "IE",
-  "France": "FR", "Belgium": "BE", "Germany": "DE", "Netherlands": "NL", "Spain": "ES",
-  "Portugal": "PT", "Italy": "IT", "Switzerland": "CH", "Sweden": "SE", "Norway": "NO",
-  "Australia": "AU", "New Zealand": "NZ", "India": "IN", "Philippines": "PH", "China": "CN",
-  "Japan": "JP", "South Korea": "KR", "Singapore": "SG", "Malaysia": "MY", "Indonesia": "ID",
-  "United Arab Emirates": "AE", "Saudi Arabia": "SA", "Israel": "IL", "Brazil": "BR",
-  "Mexico": "MX", "Jamaica": "JM", "Trinidad and Tobago": "TT", "Haiti": "HT",
-};
-
-function countryToIso(name: string | null | undefined): string {
-  if (!name) return "XX";
-  return COUNTRY_ISO_CODES[name.trim()] ?? "XX";
-}
-
 async function sendEmail(to: string, subject: string, html: string) {
   if (!RESEND_API_KEY) return { ok: false, error: "RESEND_API_KEY is not configured on this project." };
   const res = await fetch("https://api.resend.com/emails", {
@@ -152,27 +129,14 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── APPROVE ─────────────────────────────────────────────────────
-    const programId = app.program_id ?? course?.program_id ?? null;
-
     if (app.student_id) {
       // Existing student applying for another course — just enrol them,
       // no account or password step needed.
       await admin.from("enrollments").upsert(
-        { student_id: app.student_id, course_id: app.course_id, status: "active" },
+        { student_id: app.student_id, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
         { onConflict: "student_id,course_id" }
       );
       await admin.from("applications").update({ status: "approved" }).eq("id", applicationId);
-
-      // Defensive backfill: assign_matric_number is a no-op if the
-      // student already has one, so this only fires for older accounts
-      // that predate the matric number system.
-      if (programId) {
-        await admin.rpc("assign_matric_number", {
-          p_student_id: app.student_id,
-          p_program_id: programId,
-          p_country_code: countryToIso(app.nationality),
-        });
-      }
 
       const emailResult = await sendEmail(
         app.applicant_email,
@@ -217,20 +181,8 @@ Deno.serve(async (req: Request) => {
       nationality: app.nationality,
     }).eq("id", userId);
 
-    // Assign their LWGSM matric number, e.g. LWGSM-NG-CC-2026-0001,
-    // based on the programme they were approved into and their country.
-    let matricNumber: string | null = null;
-    if (programId) {
-      const { data: matricData } = await admin.rpc("assign_matric_number", {
-        p_student_id: userId,
-        p_program_id: programId,
-        p_country_code: countryToIso(app.nationality),
-      });
-      matricNumber = (matricData as string | null) ?? null;
-    }
-
     await admin.from("enrollments").upsert(
-      { student_id: userId, course_id: app.course_id, status: "active" },
+      { student_id: userId, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
       { onConflict: "student_id,course_id" }
     );
 
@@ -253,7 +205,6 @@ Deno.serve(async (req: Request) => {
       emailShell(`
         <p>Dear ${app.applicant_name},</p>
         <p>Congratulations — your application for <strong>${courseTitle}</strong> has been approved and your student account is ready.</p>
-        ${matricNumber ? `<p>Your student matric number is <strong>${matricNumber}</strong>. Please keep this for your records.</p>` : ""}
         <p>Click below to set your password and access your portal. You'll need to complete your registration payment for this course before its content unlocks.</p>
         <p style="text-align:center; margin: 28px 0;">
           <a href="${linkData.properties.action_link}" style="background:#C9A227; color:#0D2B55; font-weight:bold; padding: 12px 28px; border-radius: 10px; text-decoration:none; display:inline-block;">
@@ -269,7 +220,6 @@ Deno.serve(async (req: Request) => {
       emailError: emailResult.error,
       kind: "new_student",
       actionLink: linkData.properties.action_link,
-      matricNumber,
     }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

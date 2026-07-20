@@ -18,7 +18,7 @@ interface EnrollmentRow {
 }
 
 interface Student { id: string; full_name: string; email: string; }
-interface Course { id: string; title: string; title_fr: string | null; code: string | null; }
+interface Course { id: string; title: string; title_fr: string | null; code: string | null; program_id: string | null; }
 
 const STATUS_COLOR: Record<string, "green" | "yellow" | "blue" | "red" | "gray"> = {
   active: "green", pending: "yellow", completed: "blue", rejected: "red",
@@ -58,7 +58,7 @@ export default function AdminEnrollments() {
         .order("enrolled_at", { ascending: false })
         .limit(200),
       supabase.from("profiles").select("id, full_name, email").eq("role", "student").order("full_name"),
-      supabase.from("courses").select("id, title, title_fr, code").order("title"),
+      supabase.from("courses").select("id, title, title_fr, code, program_id").order("title"),
     ]);
     setEnrollments((enrRes.data ?? []) as unknown as EnrollmentRow[]);
     setStudents((stuRes.data ?? []) as Student[]);
@@ -97,7 +97,10 @@ export default function AdminEnrollments() {
     if (existing) { setError(lang === "en" ? "This student is already enrolled in that course." : "Cet étudiant est déjà inscrit dans ce cours."); return; }
 
     setSaving(true); setError(null);
-    const { error: err } = await supabase.from("enrollments").insert({ student_id: enrStudentId, course_id: enrCourseId, status: "active" });
+    const enrCourse = courses.find(c => c.id === enrCourseId);
+    const { error: err } = await supabase.from("enrollments").insert({
+      student_id: enrStudentId, course_id: enrCourseId, program_id: enrCourse?.program_id ?? null, status: "active",
+    });
     setSaving(false);
     if (err) { setError(err.message); return; }
     setShowModal(false); setEnrStudentId(""); setEnrCourseId("");

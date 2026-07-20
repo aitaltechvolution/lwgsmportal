@@ -53,7 +53,7 @@ const PAYMENT_STATUS_LABEL: Record<string, { en: string; fr: string }> = {
 export default function AdminDashboard() {
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { format } = useCurrency();
+  const { format, exchangeRate } = useCurrency();
 
   const [kpis, setKpis] = useState<KPIs>({
     totalStudents: 0, activeLecturers: 0, coursesRunning: 0,
@@ -76,14 +76,25 @@ export default function AdminDashboard() {
         supabase.from("profiles").select("id", { count: "exact" }).eq("role", "student"),
         supabase.from("profiles").select("id", { count: "exact" }).eq("role", "lecturer").eq("status", "active"),
         supabase.from("courses").select("id", { count: "exact" }).eq("is_published", true),
-        supabase.from("payments").select("amount, amount_usd").eq("status", "success").gte("paid_at", startOfMonth.toISOString()),
+        supabase.from("payments").select("amount, amount_usd, amount_ngn").eq("status", "success").gte("paid_at", startOfMonth.toISOString()),
         supabase.from("certificates").select("id", { count: "exact" }),
         supabase.from("applications").select("id", { count: "exact" }).eq("status", "pending"),
         supabase.from("profiles").select("id, full_name, email, country, created_at").eq("role", "student").order("created_at", { ascending: false }).limit(10),
         supabase.from("payments").select("*, profiles!payments_student_id_fkey(full_name)").order("created_at", { ascending: false }).limit(10),
       ]);
 
-      const revenue = (revenueRes.data ?? []).reduce((sum: number, p: { amount: number; amount_usd: number | null }) => sum + (p.amount_usd ?? p.amount ?? 0), 0);
+      // amount_usd is a *derived* figure for NGN-native fees (it's back-
+      // computed from the exact Naira amount using the exchange rate at
+      // the time), so summing many rows of it accumulates rounding drift
+      // — e.g. five $1000 fees could add up to $5008 instead of $5000.
+      // Summing the canonical amount_ngn first and converting once keeps
+      // that drift to a single rounding step instead of one per row.
+      const revenueNgn = (revenueRes.data ?? []).reduce(
+        (sum: number, p: { amount: number; amount_usd: number | null; amount_ngn: number | null }) =>
+          sum + (p.amount_ngn ?? (p.amount_usd ?? p.amount) * exchangeRate),
+        0
+      );
+      const revenue = exchangeRate ? revenueNgn / exchangeRate : revenueNgn;
 
       setKpis({
         totalStudents: studentsRes.count ?? 0,
@@ -98,7 +109,7 @@ export default function AdminDashboard() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [exchangeRate]);
 
   const KPI_CARDS = [
     { label: lang === "en" ? "Total Students" : "Total Étudiants", value: kpis.totalStudents, icon: GraduationCap, accent: "bg-navy/5 text-navy" },

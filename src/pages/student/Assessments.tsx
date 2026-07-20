@@ -4,7 +4,7 @@ import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { PencilLine, HelpCircle, FileSpreadsheet, ChevronRight, Send } from "lucide-react";
+import { PencilLine, FileSpreadsheet, ChevronRight, Send } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 
 interface Assignment {
@@ -26,12 +26,11 @@ interface Submission {
   score: number | null;
 }
 
-type TypeTab = "assignment" | "quiz" | "exam";
+type TypeTab = "assignment" | "exam";
 type StatusFilter = "all" | "pending" | "submitted" | "graded" | "overdue";
 
 const TYPE_TABS: { key: TypeTab; en: string; fr: string; icon: typeof PencilLine }[] = [
   { key: "assignment", en: "Assignments", fr: "Devoirs", icon: PencilLine },
-  { key: "quiz",       en: "Quizzes",     fr: "Quiz",    icon: HelpCircle },
   { key: "exam",       en: "Exams",       fr: "Examens", icon: FileSpreadsheet },
 ];
 

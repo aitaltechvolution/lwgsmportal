@@ -33,7 +33,7 @@ interface Assignment {
   description_en: string | null; description_fr: string | null;
   due_date: string | null; max_score: number | null;
   time_limit_minutes: number | null;
-  submission?: { id: string; score: number | null; submitted_at: string } | null;
+  submission?: { id: string; score: number | null; submitted_at: string; feedback?: string | null } | null;
 }
 interface Grade {
   id: string; score: number | null; grade: string | null; remarks: string | null;
@@ -102,7 +102,7 @@ export default function CourseDetail() {
     if (!id || !profile?.id) return;
     setLoading(true);
 
-    const [cRes, mRes, aRes, gRes, eRes, subRes, unlockRes, regRes, regFeeRes] = await Promise.all([
+    const [cRes, mRes, aRes, subRes, eRes, unlockRes, regRes, regFeeRes] = await Promise.all([
       supabase.from("courses")
         .select("*, programs!courses_program_id_fkey(title,title_fr,type), profiles(full_name,title,email)")
         .eq("id", id).maybeSingle(),
@@ -111,11 +111,14 @@ export default function CourseDetail() {
         .order("created_at", { ascending: true }),
       supabase.from("assignments").select("id,title_en,title_fr,description_en,description_fr,due_date,max_score,time_limit_minutes")
         .eq("course_id", id).order("due_date", { ascending: true }),
-      supabase.from("grades").select("*, assignments(title_en, max_score)")
-        .eq("student_id", profile.id).eq("course_id", id),
-      supabase.from("enrollments").select("*").eq("course_id", id).eq("student_id", profile.id).maybeSingle(),
-      supabase.from("submissions").select("id,assignment_id,score,submitted_at")
+      // Per-assignment grades actually live on submissions (set by the
+      // lecturer on the assessment's submissions page) — the course-level
+      // "grades" table is a separate, rarely-populated record and reading
+      // from it made both this tab and /student/results look empty even
+      // after a lecturer had graded work.
+      supabase.from("submissions").select("id,assignment_id,score,submitted_at,feedback")
         .eq("student_id", profile.id),
+      supabase.from("enrollments").select("*").eq("course_id", id).eq("student_id", profile.id).maybeSingle(),
       supabase.from("payments").select("material_id, status, manual_confirmed")
         .eq("student_id", profile.id).not("material_id", "is", null),
       supabase.from("payments").select("id, status, manual_confirmed, course_id")
@@ -168,7 +171,21 @@ export default function CourseDetail() {
         .map((p: { material_id: string }) => p.material_id)
     ));
     setAssignments(assignmentsWithSubs);
-    setGrades((gRes.data ?? []) as Grade[]);
+    // Build the Grades tab straight from graded submissions, joined back
+    // to their assignment's title/max_score — this is what actually
+    // reflects a lecturer's grading, unlike the mostly-empty grades table.
+    setGrades(
+      assignmentsWithSubs
+        .filter(a => a.submission && a.submission.score !== null)
+        .map(a => ({
+          id: a.submission!.id,
+          score: a.submission!.score,
+          grade: null,
+          remarks: a.submission!.feedback ?? null,
+          graded_at: a.submission!.submitted_at,
+          assignments: { title_en: a.title_en, max_score: a.max_score },
+        }))
+    );
     setEnrollment(eRes.data as Enrollment | null);
     setMatProgress(progressMap);
     setLoading(false);
@@ -179,6 +196,12 @@ export default function CourseDetail() {
   // Start tracking time when material is opened
   const startTracking = useCallback((mat: Material) => {
     if (!profile?.id || !id) return;
+    // If we're already tracking this exact material, don't reset the
+    // accumulated timer — this used to fire on every "play" event (resume
+    // after pause, seek, buffering), which reset accSecondsRef back to the
+    // last DB-saved value and made videos need 5+ replays to ever cross
+    // the completion threshold.
+    if (activeMatRef.current?.id === mat.id && timerRef.current) return;
     // Stop any existing timer
     if (timerRef.current) clearInterval(timerRef.current);
     activeMatRef.current = mat;

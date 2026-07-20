@@ -59,15 +59,51 @@ export default function StudentResults() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    supabase
-      .from("grades")
-      .select("*, courses(id, title, title_fr, code), assignments(title_en, title_fr, max_score)")
-      .eq("student_id", profile.id)
-      .order("graded_at", { ascending: false })
-      .then(({ data }) => {
-        setGrades((data ?? []) as unknown as Grade[]);
-        setLoading(false);
+
+    async function load() {
+      const { data: enrData } = await supabase
+        .from("enrollments")
+        .select("course_id")
+        .eq("student_id", profile!.id);
+
+      const courseIds = (enrData ?? []).map((e: { course_id: string }) => e.course_id).filter(Boolean);
+      if (courseIds.length === 0) { setGrades([]); setLoading(false); return; }
+
+      const { data: asgData } = await supabase
+        .from("assignments")
+        .select("id, title_en, title_fr, max_score, course_id, courses(id, title, title_fr, code)")
+        .in("course_id", courseIds);
+
+      const assignmentIds = (asgData ?? []).map((a: { id: string }) => a.id);
+      if (assignmentIds.length === 0) { setGrades([]); setLoading(false); return; }
+
+      const { data: subData } = await supabase
+        .from("submissions")
+        .select("id, assignment_id, score, submitted_at, feedback")
+        .eq("student_id", profile!.id)
+        .in("assignment_id", assignmentIds)
+        .not("score", "is", null)
+        .order("submitted_at", { ascending: false });
+
+      const asgMap = new Map((asgData ?? []).map((a: any) => [a.id, a]));
+      const mapped: Grade[] = (subData ?? []).map((s: any) => {
+        const asg = asgMap.get(s.assignment_id);
+        return {
+          id: s.id,
+          score: s.score,
+          grade: null,
+          remarks: s.feedback ?? null,
+          graded_at: s.submitted_at,
+          courses: asg?.courses ?? null,
+          assignments: asg ? { title_en: asg.title_en, title_fr: asg.title_fr, max_score: asg.max_score } : null,
+        };
       });
+
+      setGrades(mapped);
+      setLoading(false);
+    }
+
+    load();
   }, [profile?.id]);
 
   const courseOptions = Array.from(

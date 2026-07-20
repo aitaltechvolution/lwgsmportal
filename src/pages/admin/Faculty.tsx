@@ -1,194 +1,479 @@
-import { useRef, useState } from "react";
-import { X, CheckCircle2, Clock, XCircle, Share2, Download, Loader2 } from "lucide-react";
-import { useCurrency } from "@/contexts/CurrencyContext";
-import { PAYMENT_TYPES, CURRENCIES } from "@/lib/constants";
+import { useEffect, useState, FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import AdminLayout from "@/components/AdminLayout";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTranslation } from "react-i18next";
+import {
+  Search, Users, Plus, Trash2, Loader2, CheckCircle2,
+  BookOpen, LogIn, UserCheck,
+} from "lucide-react";
+import { Badge, EmptyState, SkeletonRow, Modal, ToggleSwitch } from "@/components/ui/primitives";
+import { useConfirm } from "@/contexts/ConfirmContext";
+import { useToast } from "@/contexts/ToastContext";
+import PasswordInput from "@/components/PasswordInput";
 
-interface ReceiptPayment {
-  receipt_number: string | null;
-  type: string;
-  amount_usd: number | null;
-  amount_ngn: number | null;
-  amount: number;
-  status: "pending" | "success" | "failed";
-  method: string | null;
-  reference: string | null;
-  paid_at: string | null;
+interface LecturerRow {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  status: "active" | "suspended";
   created_at: string;
+  courseCount?: number;
 }
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-  payment: ReceiptPayment;
-  studentName: string;
-  /** Program the payment relates to (e.g. via the course it's tied to).
-   *  Pass null/undefined when the payment isn't linked to a program
-   *  (e.g. a general "Other Charges" payment) — the row then shows "—". */
-  programTitle?: string | null;
-  lang: "en" | "fr";
+interface Course {
+  id: string;
+  title: string;
+  title_fr: string | null;
+  code: string | null;
+  lecturer_id: string | null;
 }
 
-const STATUS_META: Record<string, { icon: typeof CheckCircle2; color: string; en: string; fr: string }> = {
-  success: { icon: CheckCircle2, color: "text-green-600", en: "Paid",    fr: "Payé" },
-  pending: { icon: Clock,        color: "text-yellow-600", en: "Pending", fr: "En attente" },
-  failed:  { icon: XCircle,      color: "text-red-600",   en: "Failed",  fr: "Échoué" },
-};
+interface CreatedLecturer {
+  id: string;
+  full_name: string;
+  email: string;
+  password: string;
+}
 
-export default function ReceiptModal({ open, onClose, payment, studentName, programTitle, lang }: Props) {
-  const { format, currency } = useCurrency();
-  const printableRef = useRef<HTMLDivElement>(null);
-  const [sharing, setSharing] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  if (!open) return null;
+export default function AdminFaculty() {
+  const { i18n } = useTranslation();
+  const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
+  const { signIn } = useAuth();
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const { showToast } = useToast();
 
-  const filename = `Receipt-${payment.receipt_number ?? payment.reference ?? "LWGSM"}.pdf`;
+  const [lecturers, setLecturers] = useState<LecturerRow[]>([]);
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [courseSearch, setCourseSearch] = useState("");
 
-  const buildPdf = async () => {
-    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-      import("html2canvas"),
-      import("jspdf"),
+  // Create modal
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ full_name: "", title: "", email: "", password: "", phone: "", country: "" });
+  const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Manage Courses modal (existing lecturers)
+  const [manageLecturer, setManageLecturer] = useState<LecturerRow | null>(null);
+  const [assignedCourseIds, setAssignedCourseIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+
+  // ✅ FIX #12: After creation, show prompt asking admin if they want to switch to lecturer account
+  const [createdLecturer, setCreatedLecturer] = useState<CreatedLecturer | null>(null);
+  const [switchingIn, setSwitchingIn] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const [lecRes, courseRes] = await Promise.all([
+      supabase.from("profiles").select("id, full_name, email, phone, country, status, created_at")
+        .eq("role", "lecturer").order("created_at", { ascending: false }),
+      supabase.from("courses").select("id, title, title_fr, code, lecturer_id").order("title"),
     ]);
-    const canvas = await html2canvas(printableRef.current!, { scale: 2, backgroundColor: "#ffffff" });
-    const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const imgHeight = (canvas.height * pageWidth) / canvas.width;
-    pdf.addImage(imgData, "PNG", 0, 0, pageWidth, imgHeight);
-    return pdf;
+    const lecList = (lecRes.data ?? []) as LecturerRow[];
+    const courseList = (courseRes.data ?? []) as Course[];
+    lecList.forEach(l => { l.courseCount = courseList.filter(c => c.lecturer_id === l.id).length; });
+    setLecturers(lecList);
+    setAllCourses(courseList);
+    setLoading(false);
   };
 
-  const onDownload = async () => {
-    if (!printableRef.current) return;
-    setDownloading(true);
-    try {
-      const pdf = await buildPdf();
-      pdf.save(filename);
-    } catch {
-      // PDF generation failed — nothing more to do here.
-    } finally {
-      setDownloading(false);
+  useEffect(() => { load(); }, []);
+
+  const filtered = lecturers.filter(l => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return l.full_name.toLowerCase().includes(q) || l.email.toLowerCase().includes(q);
+  });
+
+  const filteredCourses = allCourses.filter(c => {
+    if (!courseSearch) return true;
+    const q = courseSearch.toLowerCase();
+    return c.title.toLowerCase().includes(q) || c.code?.toLowerCase().includes(q);
+  });
+
+  const toggleCourse = (id: string) =>
+    setSelectedCourses(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const openManageCourses = (l: LecturerRow) => {
+    setManageLecturer(l);
+    setAssignedCourseIds(new Set(allCourses.filter(c => c.lecturer_id === l.id).map(c => c.id)));
+  };
+
+  const toggleAssignedCourse = async (courseId: string) => {
+    if (!manageLecturer) return;
+    const isAssigned = assignedCourseIds.has(courseId);
+    setAssignedCourseIds(prev => {
+      const next = new Set(prev);
+      isAssigned ? next.delete(courseId) : next.add(courseId);
+      return next;
+    });
+    const { error } = await supabase.from("courses")
+      .update({ lecturer_id: isAssigned ? null : manageLecturer.id })
+      .eq("id", courseId);
+    if (error) {
+      showToast("error", error.message);
+      setAssignedCourseIds(prev => {
+        const next = new Set(prev);
+        isAssigned ? next.add(courseId) : next.delete(courseId);
+        return next;
+      });
+    } else {
+      setAllCourses(prev => prev.map(c => c.id === courseId ? { ...c, lecturer_id: isAssigned ? null : manageLecturer.id } : c));
+      setLecturers(prev => prev.map(l => {
+        if (l.id !== manageLecturer.id) return l;
+        return { ...l, courseCount: (l.courseCount ?? 0) + (isAssigned ? -1 : 1) };
+      }));
     }
   };
 
-  const onShare = async () => {
-    if (!printableRef.current) return;
-    setSharing(true);
-    try {
-      const pdf = await buildPdf();
-      const pdfBlob = pdf.output("blob");
-      const pdfFile = new File([pdfBlob], filename, { type: "application/pdf" });
+  const onAddLecturer = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.full_name.trim() || !form.email.trim() || !form.password.trim()) {
+      setError(lang === "en" ? "Name, email and password are required." : "Nom, e-mail et mot de passe requis.");
+      return;
+    }
+    setSaving(true); setError(null);
 
-      if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-        await navigator.share({
-          files: [pdfFile],
-          title: lang === "en" ? "Payment Receipt" : "Reçu de Paiement",
-        });
-      } else {
-        pdf.save(filename);
-      }
-    } catch {
-      // Share sheet cancelled or unsupported mid-flow — nothing further
-      // to do; the user can still use the Download button as a fallback.
+    try {
+      // Create the lecturer account server-side via an edge function using
+      // the service role — this does NOT touch the admin's own session,
+      // unlike the previous client-side supabase.auth.signUp() call, which
+      // silently swapped the admin's session for the new lecturer's the
+      // moment it resolved (looked like the admin being randomly signed out).
+      const { data, error: fnErr } = await supabase.functions.invoke("create-lecturer", {
+        body: {
+          full_name: form.full_name.trim(),
+          title: form.title.trim() || null,
+          email: form.email.trim(),
+          password: form.password,
+          phone: form.phone.trim() || null,
+          country: form.country.trim() || null,
+          courseIds: selectedCourses,
+        },
+      });
+      if (fnErr || data?.error) throw new Error(data?.error ?? fnErr?.message ?? "Failed to create account.");
+
+      const uid = data.id as string;
+
+      // Store created lecturer info for the post-creation prompt
+      setCreatedLecturer({ id: uid, full_name: form.full_name.trim(), email: form.email.trim(), password: form.password });
+      showToast("success",
+        lang === "en"
+          ? `Lecturer account for ${form.full_name} created successfully. You're still signed in as admin.`
+          : `Compte enseignant pour ${form.full_name} créé avec succès. Vous êtes toujours connecté en tant qu'admin.`
+      );
+      // Reset form but keep modal open to show the prompt
+      setForm({ full_name: "", title: "", email: "", password: "", phone: "", country: "" });
+      setSelectedCourses([]);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (lang === "en" ? "Failed to create account." : "Échec de la création."));
     } finally {
-      setSharing(false);
+      setSaving(false);
     }
   };
 
-  const typeMeta = PAYMENT_TYPES.find((t) => t.value === payment.type);
-  const typeLabel = typeMeta ? (lang === "en" ? typeMeta.en : typeMeta.fr) : payment.type;
-  const status = STATUS_META[payment.status] ?? STATUS_META.pending;
-  const StatusIcon = status.icon;
-  const date = new Date(payment.paid_at ?? payment.created_at);
-  const dateStr = date.toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "long", year: "numeric" });
-  const timeStr = date.toLocaleTimeString(lang === "fr" ? "fr-FR" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+  // ✅ FIX #12: Admin switches into lecturer account
+  const handleSwitchToLecturer = async () => {
+    if (!createdLecturer) return;
+    setSwitchingIn(true);
+    try {
+      await signIn(createdLecturer.email, createdLecturer.password);
+      navigate("/lecturer");
+    } catch {
+      showToast("error", lang === "en" ? "Could not sign in as lecturer. Try logging in manually." : "Connexion impossible. Essayez manuellement.");
+      setSwitchingIn(false);
+    }
+  };
+
+  const handleStayAsAdmin = () => {
+    setCreatedLecturer(null);
+    setShowModal(false);
+  };
+
+  const toggleStatus = async (l: LecturerRow) => {
+    const next: "active" | "suspended" = l.status === "active" ? "suspended" : "active";
+    setLecturers(prev => prev.map(x => x.id === l.id ? { ...x, status: next } : x));
+    await supabase.from("profiles").update({ status: next }).eq("id", l.id);
+    showToast("info", `${l.full_name} ${next === "active" ? (lang === "en" ? "activated" : "activé") : (lang === "en" ? "suspended" : "suspendu")}.`);
+  };
+
+  const onDelete = async (l: LecturerRow) => {
+    const ok = await confirm({
+      title: lang === "en" ? `Remove ${l.full_name}?` : `Supprimer ${l.full_name} ?`,
+      message: lang === "en"
+        ? "Their profile will be deleted and their courses unassigned. This cannot be undone."
+        : "Leur profil sera supprimé et leurs cours désaffectés.",
+      confirmLabel: lang === "en" ? "Remove" : "Supprimer",
+      tone: "danger",
+    });
+    if (!ok) return;
+    const prevList = lecturers;
+    setLecturers(prev => prev.filter(x => x.id !== l.id));
+    // Unassign their courses first
+    await supabase.from("courses").update({ lecturer_id: null }).eq("lecturer_id", l.id);
+    const { error: delErr } = await supabase.from("profiles").delete().eq("id", l.id);
+    if (delErr) {
+      setLecturers(prevList);
+      showToast("error", lang === "en" ? `Could not remove lecturer: ${delErr.message}` : `Impossible de supprimer : ${delErr.message}`);
+      return;
+    }
+    showToast("info", lang === "en" ? "Lecturer removed." : "Enseignant supprimé.");
+  };
+
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
 
   return (
-    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 print:p-0 animate-fade-in">
-      <div className="absolute inset-0 bg-black/50 print:hidden" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden print:shadow-none print:rounded-none print:max-w-full">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 print:hidden">
-          <h3 className="font-bold text-ink">{lang === "en" ? "Receipt" : "Reçu"}</h3>
-          <div className="flex items-center gap-2">
-            <button onClick={onShare} disabled={sharing} className="flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all disabled:opacity-60">
-              {sharing ? <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2} /> : <Share2 className="w-3.5 h-3.5" strokeWidth={2} />}
-              {lang === "en" ? "Share" : "Partager"}
-            </button>
-            <button onClick={onDownload} disabled={downloading} className="flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all disabled:opacity-60">
-              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2} /> : <Download className="w-3.5 h-3.5" strokeWidth={2} />}
-              {lang === "en" ? "Download" : "Télécharger"}
-            </button>
-            <button onClick={onClose} className="text-gray-400 hover:text-ink p-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-              <X className="w-4 h-4" strokeWidth={2} />
-            </button>
-          </div>
+    <AdminLayout title={lang === "en" ? "Lecturers" : "Enseignants"}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 animate-fade-in-up">
+        <div>
+          <h2 className="text-2xl font-black text-ink">{lang === "en" ? "Lecturers" : "Enseignants"}</h2>
+          <p className="text-sm text-slate mt-0.5">
+            {loading ? "…" : `${lecturers.length} ${lang === "en" ? "lecturer(s)" : "enseignant(s)"}`}
+          </p>
         </div>
-
-        <div id="receipt-printable" ref={printableRef} className="p-8">
-          <div className="text-center mb-6">
-            <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center mb-2 overflow-hidden">
-              <img src="/favicon.png" alt="Living Waters Global School of Ministry" className="w-full h-full object-contain" />
-            </div>
-            <h2 className="font-black text-ink text-base leading-tight">Living Waters Global<br />School of Ministry</h2>
-            <p className="text-xs text-gray-400 mt-1">{lang === "en" ? "Official Payment Receipt" : "Reçu de Paiement Officiel"}</p>
+        <div className="flex gap-3">
+          <div className="relative sm:w-60">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
+            <input type="text" placeholder={lang === "en" ? "Search…" : "Rechercher…"} value={search}
+              onChange={e => setSearch(e.target.value)} className="input pl-9" />
           </div>
+          <button onClick={() => { setShowModal(true); setError(null); setCreatedLecturer(null); setSelectedCourses([]); setForm({ full_name: "", title: "", email: "", password: "", phone: "", country: "" }); }}
+            className="btn-primary flex-shrink-0">
+            <Plus className="w-4 h-4" strokeWidth={2.5} />
+            {lang === "en" ? "Add Lecturer" : "Ajouter"}
+          </button>
+        </div>
+      </div>
 
-          <div className="mb-6 flex justify-center">
-            {/* Table layout instead of flex+gap: html2canvas doesn't reliably
-                rasterize flexbox gap/alignment, which was causing the "Paid"
-                label to render below the icon instead of beside it in the
-                downloaded PDF. Table cells with vertical-align rasterize
-                correctly. */}
-            <table style={{ borderCollapse: "collapse" }}>
-              <tbody>
-                <tr>
-                  <td style={{ verticalAlign: "middle", paddingRight: 8 }}>
-                    <StatusIcon className={`w-5 h-5 block ${status.color}`} strokeWidth={2} />
-                  </td>
-                  <td style={{ verticalAlign: "middle" }}>
-                    <span className={`font-bold text-sm ${status.color}`} style={{ lineHeight: 1 }}>
-                      {lang === "en" ? status.en : status.fr}
-                    </span>
-                  </td>
+      {loading ? (
+        <div className="card divide-y divide-gray-50">{Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}</div>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={Users} title={lang === "en" ? "No lecturers yet" : "Aucun enseignant"} />
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50/60 border-b border-gray-100">
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Name" : "Nom"}</th>
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "Email" : "E-mail"}</th>
+                  <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Courses" : "Cours"}</th>
+                  <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Status" : "Statut"}</th>
+                  <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Active" : "Actif"}</th>
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden lg:table-cell">{lang === "en" ? "Joined" : "Inscrit"}</th>
+                  <th className="text-right px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Actions" : "Actions"}</th>
                 </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.map(l => (
+                  <tr key={l.id} className="hover:bg-gray-50/60 transition-colors group">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-navy font-black text-xs flex-shrink-0 overflow-hidden">
+                          {(l as any).avatar_url ? <img src={(l as any).avatar_url} alt="" className="w-full h-full object-cover" /> : l.full_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-ink">{l.full_name}</p>
+                          <p className="text-xs text-gray-400 md:hidden">{l.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-400 hidden md:table-cell">{l.email}</td>
+                    <td className="px-5 py-3.5 text-center">
+                      <span className="flex items-center justify-center gap-1 text-navy font-bold">
+                        <BookOpen className="w-3.5 h-3.5" strokeWidth={2} />{l.courseCount ?? 0}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      <Badge color={l.status === "active" ? "green" : "red"}>
+                        {l.status === "active" ? (lang === "en" ? "Active" : "Actif") : (lang === "en" ? "Suspended" : "Suspendu")}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3.5 text-center">
+                      <ToggleSwitch checked={l.status === "active"} onChange={() => toggleStatus(l)} />
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-400 text-xs hidden lg:table-cell">{fmtDate(l.created_at)}</td>
+                    <td className="px-5 py-3.5 text-right">
+                      <button onClick={() => openManageCourses(l)} className="text-gray-400 hover:text-navy transition-colors p-1.5 rounded-lg hover:bg-navy/5 mr-1" title={lang === "en" ? "Manage Courses" : "Gérer les Cours"}>
+                        <BookOpen className="w-4 h-4" strokeWidth={2} />
+                      </button>
+                      <button onClick={() => onDelete(l)} className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50">
+                        <Trash2 className="w-4 h-4" strokeWidth={2} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-
-          <div className="border-t border-b border-dashed border-gray-200 py-4 space-y-3">
-            <Row label={lang === "en" ? "Receipt No." : "Reçu N°"} value={payment.receipt_number ?? "—"} mono />
-            <Row label={lang === "en" ? "Student" : "Étudiant"} value={studentName} />
-            <Row label={lang === "en" ? "Program" : "Programme"} value={programTitle ?? "—"} />
-            <Row label={lang === "en" ? "Payment Type" : "Type de Paiement"} value={typeLabel} />
-            <Row label={lang === "en" ? "Method" : "Méthode"} value={payment.method === "bank_transfer" ? (lang === "en" ? "Bank Transfer" : "Virement Bancaire") : "Paystack"} />
-            <Row label={lang === "en" ? "Reference" : "Référence"} value={payment.reference ?? "—"} mono />
-            <Row label={lang === "en" ? "Date" : "Date"} value={`${dateStr} · ${timeStr}`} />
-          </div>
-
-          <div className="flex items-center justify-between mt-5 pt-1">
-            <span className="text-sm font-bold text-slate">{lang === "en" ? "Amount" : "Montant"}</span>
-            <span className="text-2xl font-black text-navy">
-              {currency === "NGN" && payment.amount_ngn != null
-                ? `${CURRENCIES.find(c => c.code === "NGN")!.symbol}${payment.amount_ngn.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                : format(payment.amount_usd ?? payment.amount)}
-            </span>
-          </div>
-
-          <p className="text-center text-[11px] text-gray-400 mt-8">
-            {lang === "en"
-              ? "This receipt is system-generated and valid without a signature."
-              : "Ce reçu est généré automatiquement et valide sans signature."}
-          </p>
         </div>
-      </div>
-    </div>
-  );
-}
+      )}
 
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-xs text-gray-400 font-medium flex-shrink-0">{label}</span>
-      <span className={`text-sm font-semibold text-ink text-right ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
-    </div>
+      {/* ── Create Lecturer Modal ── */}
+      <Modal open={showModal} onClose={() => { setShowModal(false); setCreatedLecturer(null); }}
+        title={lang === "en" ? "Add Lecturer" : "Ajouter un Enseignant"} maxWidth="max-w-2xl">
+
+        {/* ✅ FIX #12: Post-creation prompt */}
+        {createdLecturer ? (
+          <div className="text-center py-6 space-y-5 animate-scale-in">
+            <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8 text-green-600" strokeWidth={2} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-ink mb-1">
+                {lang === "en" ? "Lecturer account created!" : "Compte enseignant créé !"}
+              </h3>
+              <p className="text-sm text-slate">
+                {lang === "en"
+                  ? `${createdLecturer.full_name}'s account is ready. Would you like to switch to their account to verify setup?`
+                  : `Le compte de ${createdLecturer.full_name} est prêt. Voulez-vous basculer vers ce compte pour vérifier la configuration ?`}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleSwitchToLecturer} disabled={switchingIn}
+                className="btn-primary flex-1 disabled:opacity-60">
+                {switchingIn
+                  ? <><Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />{lang === "en" ? "Switching…" : "Changement…"}</>
+                  : <><LogIn className="w-4 h-4" strokeWidth={2} />{lang === "en" ? "Switch to Lecturer Account" : "Basculer vers ce Compte"}</>}
+              </button>
+              <button onClick={handleStayAsAdmin}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+                <UserCheck className="w-4 h-4" strokeWidth={2} />
+                {lang === "en" ? "Stay as Admin" : "Rester Admin"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={onAddLecturer} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">{lang === "en" ? "Full Name" : "Nom Complet"} *</label>
+                <input type="text" required value={form.full_name}
+                  onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} className="input" />
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Professional Title" : "Titre Professionnel"}</label>
+                <input type="text" value={form.title}
+                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder={lang === "en" ? "e.g. Senior Lecturer, PhD" : "ex. Maître de Conférences"}
+                  className="input" />
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Email" : "E-mail"} *</label>
+                <input type="email" required value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="input" />
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Temporary Password" : "Mot de Passe Temporaire"} *</label>
+                <PasswordInput required minLength={8} value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: (e.target as HTMLInputElement).value }))}
+                  className="input" placeholder="Min 8 characters" />
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Phone" : "Téléphone"}</label>
+                <input type="tel" value={form.phone}
+                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input" />
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Country" : "Pays"}</label>
+                <input type="text" value={form.country}
+                  onChange={e => setForm(f => ({ ...f, country: e.target.value }))} className="input" />
+              </div>
+            </div>
+
+            {/* Course assignment with search */}
+            <div>
+              <label className="label">
+                {lang === "en" ? "Assign Courses" : "Assigner des Cours"}
+                {selectedCourses.length > 0 && (
+                  <span className="ml-2 text-xs text-brand font-bold">({selectedCourses.length} selected)</span>
+                )}
+              </label>
+              <div className="relative mb-1.5">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" strokeWidth={2} />
+                <input type="text" placeholder={lang === "en" ? "Filter courses…" : "Filtrer les cours…"} value={courseSearch}
+                  onChange={e => setCourseSearch(e.target.value)} className="input pl-9 py-2 text-sm" />
+              </div>
+              <div className="max-h-52 overflow-y-auto rounded-xl border border-gray-200 divide-y divide-gray-50">
+                {filteredCourses.length === 0 ? (
+                  <p className="text-sm text-gray-400 p-4">{lang === "en" ? "No courses found." : "Aucun cours trouvé."}</p>
+                ) : filteredCourses.map(c => (
+                  <label key={c.id} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors
+                    ${selectedCourses.includes(c.id) ? "bg-navy/5" : ""}`}>
+                    <input type="checkbox" checked={selectedCourses.includes(c.id)} onChange={() => toggleCourse(c.id)}
+                      className="rounded border-gray-300 text-brand focus:ring-brand/30" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">
+                        {(lang === "fr" && c.title_fr) ? c.title_fr : c.title}
+                      </p>
+                      {c.code && <p className="text-xs text-gray-400">{c.code}</p>}
+                    </div>
+                    {c.lecturer_id && c.lecturer_id !== "" && (
+                      <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">
+                        {lang === "en" ? "Assigned" : "Assigné"}
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>
+            )}
+
+            <div className="flex gap-3">
+              <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 disabled:translate-y-0">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <Plus className="w-4 h-4" strokeWidth={2.5} />}
+                {saving ? (lang === "en" ? "Creating…" : "Création…") : (lang === "en" ? "Create Lecturer" : "Créer le Compte")}
+              </button>
+              <button type="button" onClick={() => setShowModal(false)} className="btn-ghost border border-gray-200">
+                {lang === "en" ? "Cancel" : "Annuler"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Manage Courses modal — add/remove courses assigned to an existing lecturer */}
+      <Modal open={!!manageLecturer} onClose={() => setManageLecturer(null)}
+        title={manageLecturer ? `${lang === "en" ? "Courses for" : "Cours de"} ${manageLecturer.full_name}` : ""} maxWidth="max-w-lg">
+        {manageLecturer && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate">
+              {lang === "en" ? "Check or uncheck to assign or unassign a course to this lecturer." : "Cochez ou décochez pour assigner ou retirer un cours à cet enseignant."}
+            </p>
+            <div className="border border-gray-200 rounded-xl max-h-80 overflow-y-auto divide-y divide-gray-50">
+              {allCourses.map(c => {
+                const isAssigned = assignedCourseIds.has(c.id);
+                const takenByOther = c.lecturer_id && c.lecturer_id !== manageLecturer.id && !isAssigned;
+                return (
+                  <label key={c.id} className={`flex items-center gap-2.5 px-3 py-2.5 text-sm ${takenByOther ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50 cursor-pointer"}`}>
+                    <input type="checkbox" checked={isAssigned} disabled={!!takenByOther}
+                      onChange={() => toggleAssignedCourse(c.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy/30" />
+                    <span className="text-ink font-medium">{c.title}</span>
+                    {c.code && <span className="text-xs text-gray-400">{c.code}</span>}
+                    {takenByOther && <span className="ml-auto text-xs text-red-400">{lang === "en" ? "Assigned elsewhere" : "Assigné ailleurs"}</span>}
+                  </label>
+                );
+              })}
+              {allCourses.length === 0 && <p className="text-xs text-gray-400 px-3 py-3">{lang === "en" ? "No courses exist yet." : "Aucun cours pour le moment."}</p>}
+            </div>
+            <button type="button" onClick={() => setManageLecturer(null)} className="btn-primary w-full">
+              {lang === "en" ? "Done" : "Terminé"}
+            </button>
+          </div>
+        )}
+      </Modal>
+    </AdminLayout>
   );
 }

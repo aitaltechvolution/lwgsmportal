@@ -36,6 +36,24 @@ export const COUNTRIES: string[] = [
   "Other",
 ];
 
+/** ISO 3166-1 alpha-2 codes for the COUNTRIES list above — used to build
+ *  each student's international matric number (e.g. Nigeria -> NG). */
+export const COUNTRY_CODES: Record<string, string> = {
+  "Nigeria": "NG", "Ghana": "GH", "Kenya": "KE", "South Africa": "ZA", "Cameroon": "CM",
+  "Benin": "BJ", "Côte d'Ivoire": "CI", "Togo": "TG", "Senegal": "SN",
+  "Egypt": "EG", "Ethiopia": "ET", "Uganda": "UG", "Tanzania": "TZ", "Zambia": "ZM",
+  "Zimbabwe": "ZW", "Rwanda": "RW", "Sierra Leone": "SL", "Liberia": "LR",
+  "United States": "US", "Canada": "CA", "United Kingdom": "GB", "Ireland": "IE",
+  "France": "FR", "Belgium": "BE", "Germany": "DE", "Netherlands": "NL",
+  "Spain": "ES", "Portugal": "PT", "Italy": "IT", "Switzerland": "CH", "Sweden": "SE",
+  "Norway": "NO", "Australia": "AU", "New Zealand": "NZ",
+  "India": "IN", "Philippines": "PH", "China": "CN", "Japan": "JP", "South Korea": "KR",
+  "Singapore": "SG", "Malaysia": "MY", "Indonesia": "ID",
+  "United Arab Emirates": "AE", "Saudi Arabia": "SA", "Israel": "IL",
+  "Brazil": "BR", "Mexico": "MX", "Jamaica": "JM", "Trinidad and Tobago": "TT", "Haiti": "HT",
+  "Other": "XX",
+};
+
 export const CURRENCIES = [
   { code: "EUR", symbol: "€",  en: "Euro",             fr: "Euro" },
   { code: "USD", symbol: "$",  en: "US Dollar", fr: "Dollar Américain" },

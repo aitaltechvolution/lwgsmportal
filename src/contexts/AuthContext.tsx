@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { Profile, Role } from "@/types";
 import i18n from "@/i18n/config";
 import { logUsageEvent } from "@/lib/usageEvents";
+import { COUNTRY_CODES } from "@/lib/constants";
 
 interface AuthContextValue {
   session: Session | null;
@@ -112,6 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: d.email,
         phone: d.phone,
         country: d.country,
+        country_code: COUNTRY_CODES[d.country] ?? "XX",
         nationality: d.nationality,
         language_pref: d.language_pref,
       });
@@ -128,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         full_name: d.full_name,
         phone: d.phone,
         country: d.country,
+        country_code: COUNTRY_CODES[d.country] ?? "XX",
         nationality: d.nationality,
         language_pref: d.language_pref,
       })
@@ -147,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!session?.user) throw new Error("Not signed in");
     const payload: Record<string, unknown> = {};
     if (d.phone !== undefined) payload.phone = d.phone;
-    if (d.country !== undefined) payload.country = d.country;
+    if (d.country !== undefined) { payload.country = d.country; payload.country_code = COUNTRY_CODES[d.country] ?? "XX"; }
     if (d.nationality !== undefined) payload.nationality = d.nationality;
     if (d.language_pref !== undefined) payload.language_pref = d.language_pref;
     if (d.full_name !== undefined) payload.full_name = d.full_name;
@@ -210,8 +213,9 @@ export async function flushPendingInvite(userId: string) {
   try {
     const { applicationId, courseId } = JSON.parse(raw);
     if (courseId) {
+      const { data: course } = await supabase.from("courses").select("program_id").eq("id", courseId).maybeSingle();
       await supabase.from("enrollments").upsert(
-        { student_id: userId, course_id: courseId, status: "active" },
+        { student_id: userId, course_id: courseId, program_id: course?.program_id ?? null, status: "active" },
         { onConflict: "student_id,course_id" }
       );
     }

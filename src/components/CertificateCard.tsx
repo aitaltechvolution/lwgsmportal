@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { QRCodeCanvas } from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 import logo from "/favicon.png"
 
 export interface CertificateData {
@@ -47,7 +47,7 @@ const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function Cer
       <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: "35px 51px", textAlign: "center" }}>
         <img src={logo} style={{ width: 36, height: 36, marginBottom: 9, objectFit: "contain" }} />
 
-        <div style={{ fontWeight: 900, fontSize: 14, color: "white", letterSpacing: 0.5 }}>LIVING WATERS GLOBAL SCHOOL OF MINISTRY</div>
+        <div style={{ fontWeight: 900, fontSize: 14, color: "white" }}>LIVING WATERS GLOBAL SCHOOL OF MINISTRY</div>
         <div style={{ fontSize: 9, color: "rgba(200,200,250,0.6)", marginTop: 2 }}>École Mondiale du Ministère des Eaux Vives</div>
 
         <div style={{ width: 51, height: 2, background: "#C9A227", margin: "14px 0" }} />
@@ -56,7 +56,7 @@ const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function Cer
           This is to certify that &nbsp;·&nbsp; Nous certifions que
         </div>
 
-        <div style={{ fontSize: 27, fontWeight: 900, color: "white", margin: "11px 0 6px", letterSpacing: 0.3 }}>
+        <div style={{ fontSize: 27, fontWeight: 900, color: "white", margin: "11px 0 6px" }}>
           {student_name}
         </div>
 
@@ -84,11 +84,11 @@ const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function Cer
             <div style={{ fontSize: 7, color: "rgba(200,200,250,0.5)" }}>Signataire Autorisé</div>
           </div>
 
-          <div style={{ textAlign: "center" }}>
+          {/* <div style={{ textAlign: "center" }}>
             <div style={{ background: "white", padding: 4, borderRadius: 5, display: "inline-block" }}>
-              <QRCodeCanvas value={verify_url} size={46} level="M" />
+              <QRCodeSVG value={verify_url} size={46} level="M" />
             </div>
-          </div>
+          </div> */}
 
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 7, color: "rgba(200,200,250,0.5)", marginBottom: 2 }}>Certificate No. / N° de Certificat</div>

@@ -3,9 +3,8 @@ import LecturerLayout from "@/components/LecturerLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Search, Users, Mail, MessageSquare } from "lucide-react";
+import { Search, Users } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
-import { Link } from "react-router-dom";
 
 interface Course {
   id: string;
@@ -145,7 +144,6 @@ export default function LecturerStudents() {
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Course" : "Cours"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Progress" : "Progression"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Status" : "Statut"}</th>
-                  <th className="text-right px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Contact" : "Contact"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -173,16 +171,6 @@ export default function LecturerStudents() {
                         <Badge color={s.status === "completed" ? "green" : "blue"}>
                           {lang === "en" ? s.status.charAt(0).toUpperCase() + s.status.slice(1) : s.status === "active" ? "Actif" : "Terminé"}
                         </Badge>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <a href={`mailto:${s.email}`} className="text-gray-400 hover:text-navy transition-colors" title={lang === "en" ? "Email" : "E-mail"}>
-                            <Mail className="w-4 h-4" strokeWidth={2} />
-                          </a>
-                          <Link to="/lecturer/messages" className="text-gray-400 hover:text-brand transition-colors" title={lang === "en" ? "Message" : "Message"}>
-                            <MessageSquare className="w-4 h-4" strokeWidth={2} />
-                          </Link>
-                        </div>
                       </td>
                     </tr>
                   );
