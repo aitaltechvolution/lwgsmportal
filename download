@@ -1,10 +1,12 @@
-no announcement is seen
 if user data is not found or account not existing redirect to login, dont render an account for such
 students should be able to see their matric no in profile, dashboard, certificate, my course page
-
-remove the ui for allow download in admin and lecturer page - all contents an be dpwnloaded only restriction ny access in paymnt is allowed
 
 if i click apply from programmes page let it set to programmes on admissions
 
 
 resend for approval of course
+view profile button is doing nothing under admin viewing student profile - remove it
+
+
+
+
