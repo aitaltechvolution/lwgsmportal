@@ -238,10 +238,6 @@ export default function AdminStudents() {
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setActionMenu(null)} />
                           <div className="absolute right-5 top-12 z-20 w-48 bg-white rounded-xl shadow-card-hover border border-gray-100 py-1.5 animate-scale-in">
-                            <button className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-ink hover:bg-gray-50 transition-colors">
-                              <Eye className="w-4 h-4 text-gray-400" strokeWidth={2} />
-                              {lang === "en" ? "View Profile" : "Voir le Profil"}
-                            </button>
                             <button onClick={() => toggleSuspend(s)} className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-ink hover:bg-gray-50 transition-colors">
                               <Ban className="w-4 h-4 text-yellow-500" strokeWidth={2} />
                               {s.status === "active" ? (lang === "en" ? "Suspend Account" : "Suspendre le Compte") : (lang === "en" ? "Reactivate Account" : "Réactiver le Compte")}
