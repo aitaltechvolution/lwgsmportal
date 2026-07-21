@@ -31,13 +31,25 @@ export default function AnnouncementsPage({ role, compact }: Props) {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      const nowIso = new Date().toISOString();
       let q = supabase.from("announcements")
         .select("*, profiles!announcements_author_id_fkey(full_name)")
-        .or(`target_role.is.null,target_role.eq.all,target_role.eq.${role}`)
-        .lte("scheduled_at", new Date().toISOString())
+        // The app only ever stores target_role as null ("everyone"),
+        // "public" (website), or an exact role name — it never stores
+        // the literal string "all", so that clause used to match
+        // nothing and was silently dead.
+        .or(`target_role.is.null,target_role.eq.public,target_role.eq.${role}`)
+        // Comparing NULL with <= is never true in Postgres, so a plain
+        // .lte("scheduled_at", ...) hid every announcement that never
+        // had scheduled_at set (e.g. anything created before the
+        // scheduling feature existed) — that was the main reason this
+        // page could show nothing at all. Treat "no scheduled_at" as
+        // "publish immediately".
+        .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
         .order("created_at", { ascending: false });
       if (compact) q = q.limit(3);
-      const { data } = await q;
+      const { data, error } = await q;
+      if (error) console.error("Failed to load announcements:", error);
       setItems((data ?? []).map((a: any) => ({ ...a, author_name: a.profiles?.full_name })));
       setLoading(false);
     };
@@ -93,7 +105,7 @@ export default function AnnouncementsPage({ role, compact }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <p className="font-bold text-[#0A1628] text-sm leading-snug">{title}</p>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gakwpp-2 flex-shrink-0">
                     {audienceBadge(ann.target_role)}
                     {isOpen ? <ChevronUp className="w-4 h-4 text-gray-400" strokeWidth={2} /> : <ChevronDown className="w-4 h-4 text-gray-400" strokeWidth={2} />}
                   </div>

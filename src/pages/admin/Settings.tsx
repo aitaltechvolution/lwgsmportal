@@ -5,11 +5,12 @@ import { useCurrency } from "@/contexts/CurrencyContext";
 import { useState, FormEvent, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  CheckCircle2, XCircle, ChevronDown, DollarSign, CreditCard, Building2,
+  CheckCircle2, ChevronDown, DollarSign, CreditCard, Building2,
   Plus, Trash2, Loader2, Eye, EyeOff, School, Bell,
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/primitives";
 import { useConfirm } from "@/contexts/ConfirmContext";
+import { useToast } from "@/contexts/ToastContext";
 import AvatarUpload from "@/components/AvatarUpload";
 
 interface BankAccount {
@@ -28,6 +29,7 @@ export default function AdminSettings() {
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
   const { exchangeRate, setExchangeRate, usdToEur, setUsdToEur, currency, setCurrency } = useCurrency();
   const confirm = useConfirm();
+  const { showToast } = useToast();
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null);
@@ -35,7 +37,6 @@ export default function AdminSettings() {
   const [pwdSection, setPwdSection] = useState(false);
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState(""); const [confirmPwd, setConfirmPwd] = useState(""); const [pwdSaving, setPwdSaving] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [rateInput, setRateInput] = useState(String(exchangeRate));
   const [eurInput, setEurInput] = useState(String(usdToEur ?? 0.92));
   const [eurSaving, setEurSaving] = useState(false);
@@ -79,8 +80,12 @@ export default function AdminSettings() {
   const [notifySms, setNotifySms] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
 
-  // Attendance policy
-  const [requireAttendance, setRequireAttendance] = useState(false);
+  // Account verification callback URL (used in approval emails)
+  const [verifyCallbackUrl, setVerifyCallbackUrl] = useState("");
+  const [verifyCallbackSaving, setVerifyCallbackSaving] = useState(false);
+
+  // Attendance policy — the on/off switch now lives per-course (see admin
+  // Courses); this page only keeps the global minimum-rate threshold.
   const [minAttendancePct, setMinAttendancePct] = useState("75");
   const [attendancePolicySaving, setAttendancePolicySaving] = useState(false);
 
@@ -89,7 +94,7 @@ export default function AdminSettings() {
       "paystack_public_key", "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral", "fee_certificate",
       "school_name_en", "school_name_fr", "school_tagline_en", "school_tagline_fr",
       "notify_new_enrollment", "notify_payment_received", "notify_certificate_issued", "notify_sms_enabled",
-      "require_attendance_for_certificate", "min_attendance_pct",
+      "min_attendance_pct", "account_verification_redirect_url",
     ]).then(({ data }) => {
       const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
       setPaystackKey(map.get("paystack_public_key") ?? "");
@@ -105,8 +110,8 @@ export default function AdminSettings() {
       setNotifyPayment((map.get("notify_payment_received") ?? "true") === "true");
       setNotifyCertificate((map.get("notify_certificate_issued") ?? "true") === "true");
       setNotifySms((map.get("notify_sms_enabled") ?? "false") === "true");
-      setRequireAttendance((map.get("require_attendance_for_certificate") ?? "false") === "true");
       setMinAttendancePct(map.get("min_attendance_pct") ?? "75");
+      setVerifyCallbackUrl(map.get("account_verification_redirect_url") ?? "");
     });
     loadBankAccounts();
   }, []);
@@ -121,7 +126,7 @@ export default function AdminSettings() {
 
   useEffect(() => { if (profile) { setFullName(profile.full_name ?? ""); setPhone(profile.phone ?? ""); setAvatarUrl(profile.avatar_url ?? null); } }, [profile]);
 
-  const showMsg = (type: "ok" | "err", text: string) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
+  const showMsg = (type: "ok" | "err", text: string) => showToast(type === "ok" ? "success" : "error", text);
 
   const onSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -205,7 +210,7 @@ export default function AdminSettings() {
     }
   };
 
-  const onSaveAttendancePolicy = async (next: { requireAttendance?: boolean; minAttendancePct?: string }) => {
+  const onSaveAttendancePolicy = async (next: { minAttendancePct?: string }) => {
     const pct = next.minAttendancePct ?? minAttendancePct;
     const numeric = Number(pct);
     if (Number.isNaN(numeric) || numeric < 0 || numeric > 100) {
@@ -214,12 +219,8 @@ export default function AdminSettings() {
     }
     setAttendancePolicySaving(true);
     try {
-      const values = {
-        require_attendance_for_certificate: String(next.requireAttendance ?? requireAttendance),
-        min_attendance_pct: pct,
-      };
       const { error } = await supabase.from("site_settings").upsert(
-        Object.entries(values).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }))
+        [{ key: "min_attendance_pct", value: pct, updated_at: new Date().toISOString() }]
       );
       if (error) throw error;
       showMsg("ok", lang === "en" ? "Attendance policy saved!" : "Politique de présence enregistrée !");
@@ -227,6 +228,28 @@ export default function AdminSettings() {
       showMsg("err", lang === "en" ? "Failed to save attendance policy." : "Échec de l'enregistrement.");
     } finally {
       setAttendancePolicySaving(false);
+    }
+  };
+
+  const onSaveVerifyCallbackUrl = async (e: FormEvent) => {
+    e.preventDefault();
+    const url = verifyCallbackUrl.trim().replace(/\/+$/, "");
+    if (url && !/^https?:\/\//i.test(url)) {
+      showMsg("err", lang === "en" ? "Enter a valid URL starting with http:// or https://." : "Entrez une URL valide commençant par http:// ou https://.");
+      return;
+    }
+    setVerifyCallbackSaving(true);
+    try {
+      const { error } = await supabase.from("site_settings").upsert(
+        { key: "account_verification_redirect_url", value: url, updated_at: new Date().toISOString() }
+      );
+      if (error) throw error;
+      setVerifyCallbackUrl(url);
+      showMsg("ok", lang === "en" ? "Callback URL saved!" : "URL de rappel enregistrée !");
+    } catch {
+      showMsg("err", lang === "en" ? "Failed to save callback URL." : "Échec de l'enregistrement.");
+    } finally {
+      setVerifyCallbackSaving(false);
     }
   };
 
@@ -322,7 +345,6 @@ export default function AdminSettings() {
           )}
           <div><div className="text-white font-black text-lg">{profile?.full_name}</div><div className="text-white/50 text-sm">{profile?.email}</div><span className="inline-block mt-2 text-xs font-bold bg-amber-400/15 text-amber-300 border border-amber-400/25 px-2.5 py-0.5 rounded-full">Administrator</span></div>
         </div>
-        {msg && <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 animate-fade-in ${msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{msg.type === "ok" ? <CheckCircle2 className="w-4 h-4" strokeWidth={2} /> : <XCircle className="w-4 h-4" strokeWidth={2} />}{msg.text}</div>}
         <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
           <h3 className="font-bold text-ink mb-1 flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-navy" strokeWidth={2} />
@@ -572,28 +594,15 @@ export default function AdminSettings() {
           </h3>
           <p className="text-xs text-slate mb-4">
             {lang === "en"
-              ? "Attendance is tracked automatically from lecturer sessions. Optionally require a minimum attendance rate before a student can receive their certificate."
-              : "La présence est suivie automatiquement à partir des sessions des enseignants. Exigez éventuellement un taux minimum avant qu'un étudiant puisse recevoir son certificat."}
+              ? "Attendance is tracked automatically from lecturer sessions. Whether a course requires attendance for certificate eligibility is set per-course, on that course's edit screen — this rate applies wherever a course has that turned on."
+              : "La présence est suivie automatiquement à partir des sessions des enseignants. L'exigence de présence pour l'éligibilité au certificat se règle par cours, sur l'écran de modification du cours — ce taux s'applique partout où un cours l'a activée."}
           </p>
           <div className="space-y-3">
             <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
               <div>
-                <p className="text-sm font-semibold text-ink">{lang === "en" ? "Require Attendance for Certificate" : "Exiger la Présence pour le Certificat"}</p>
-                <p className="text-xs text-gray-400">
-                  {lang === "en" ? "A student must meet the minimum attendance rate below to be certificate-eligible" : "Un étudiant doit atteindre le taux minimum ci-dessous pour être éligible au certificat"}
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={requireAttendance}
-                onChange={(v) => { setRequireAttendance(v); onSaveAttendancePolicy({ requireAttendance: v }); }}
-                disabled={attendancePolicySaving}
-              />
-            </div>
-            <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
-              <div>
                 <p className="text-sm font-semibold text-ink">{lang === "en" ? "Minimum Attendance Rate" : "Taux de Présence Minimum"}</p>
                 <p className="text-xs text-gray-400">
-                  {lang === "en" ? "Percentage of live sessions a student must be marked present for" : "Pourcentage de sessions en direct où l'étudiant doit être marqué présent"}
+                  {lang === "en" ? "Percentage of live sessions a student must be marked present for, in courses that require attendance" : "Pourcentage de sessions en direct où l'étudiant doit être marqué présent, dans les cours qui exigent la présence"}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -607,6 +616,27 @@ export default function AdminSettings() {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
+          <h3 className="font-bold text-ink mb-1 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-navy" strokeWidth={2} />
+            {lang === "en" ? "Account Verification Callback URL" : "URL de Rappel de Vérification de Compte"}
+          </h3>
+          <p className="text-xs text-slate mb-4">
+            {lang === "en"
+              ? "The site applicants are sent back to after approving/setting their password — used in both the \"Set My Password\" link (new accounts) and the \"Log In\" link (existing students adding a course). Leave blank to use the server default."
+              : "Le site vers lequel les candidats sont renvoyés après avoir défini leur mot de passe — utilisé pour le lien « Définir mon mot de passe » (nouveaux comptes) et le lien « Se connecter » (étudiants existants ajoutant un cours). Laissez vide pour utiliser la valeur par défaut du serveur."}
+          </p>
+          <form onSubmit={onSaveVerifyCallbackUrl} className="flex gap-2">
+            <input
+              type="url" value={verifyCallbackUrl} onChange={e => setVerifyCallbackUrl(e.target.value)}
+              placeholder="https://your-site.example.com" className="input flex-1"
+            />
+            <button type="submit" disabled={verifyCallbackSaving} className="btn-primary px-5 disabled:opacity-60 disabled:translate-y-0 whitespace-nowrap">
+              {verifyCallbackSaving ? "…" : (lang === "en" ? "Save" : "Enregistrer")}
+            </button>
+          </form>
         </div>
 
         <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>

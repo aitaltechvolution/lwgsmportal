@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import {
   FileText, PencilLine, Plus, Loader2, Calendar, Target, ClipboardCheck,
-  Pencil, Trash2, X, ChevronRight, ListChecks, Clock, Link2,
+  Pencil, Trash2, X, ChevronRight, ListChecks, Clock,
 } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import { useConfirm } from "@/contexts/ConfirmContext";
@@ -29,7 +29,6 @@ interface Assignment {
   due_date: string | null;
   max_score: number | null;
   time_limit_minutes: number | null;
-  external_url: string | null;
   submissionCount?: number;
   gradedCount?: number;
   questionCount?: number;
@@ -60,7 +59,6 @@ export default function CourseAssessments() {
   const [dueDate, setDueDate] = useState("");
   const [maxScore, setMaxScore] = useState("100");
   const [timeLimit, setTimeLimit] = useState("");
-  const [externalUrl, setExternalUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,7 +99,7 @@ export default function CourseAssessments() {
 
   const resetForm = () => {
     setEditingId(null); setTitleEn(""); setTitleFr(""); setDescEn(""); setDescFr("");
-    setType("assignment"); setDueDate(""); setMaxScore("100"); setTimeLimit(""); setExternalUrl(""); setError(null);
+    setType("assignment"); setDueDate(""); setMaxScore("100"); setTimeLimit(""); setError(null);
   };
 
   const startEdit = (a: Assignment) => {
@@ -114,7 +112,6 @@ export default function CourseAssessments() {
     setDueDate(a.due_date ? a.due_date.slice(0, 16) : "");
     setMaxScore(a.max_score ? String(a.max_score) : "100");
     setTimeLimit(a.time_limit_minutes ? String(a.time_limit_minutes) : "");
-    setExternalUrl(a.external_url ?? "");
     setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -137,7 +134,6 @@ export default function CourseAssessments() {
       due_date: dueDate ? new Date(dueDate).toISOString() : null,
       max_score: maxScore ? Number(maxScore) : 100,
       time_limit_minutes: (type !== "assignment" && timeLimit) ? Number(timeLimit) : null,
-      external_url: (type !== "assignment" && externalUrl.trim()) ? externalUrl.trim() : null,
     };
 
     const { error: err } = editingId
@@ -241,21 +237,10 @@ export default function CourseAssessments() {
               </div>
 
               {type !== "assignment" && (
-                <>
-                  <div>
-                    <label className="label flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Time Limit (minutes, optional)" : "Limite de Temps (minutes, optionnel)"}</label>
-                    <input type="number" min="1" value={timeLimit} onChange={e => setTimeLimit(e.target.value)} placeholder={lang === "en" ? "No limit" : "Aucune limite"} className="input" />
-                  </div>
-                  <div>
-                    <label className="label flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "External Link (optional)" : "Lien Externe (optionnel)"}</label>
-                    <input type="url" value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://forms.google.com/…" className="input" />
-                    <p className="text-xs text-gray-400 mt-1">
-                      {lang === "en"
-                        ? "Use this if the test is hosted elsewhere (e.g. Google Forms). Scores from external links must be entered manually in Submissions — only questions built below are auto-graded."
-                        : "À utiliser si le test est hébergé ailleurs. Les notes des liens externes doivent être saisies manuellement — seules les questions créées ci-dessous sont corrigées automatiquement."}
-                    </p>
-                  </div>
-                </>
+                <div>
+                  <label className="label flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Time Limit (minutes, optional)" : "Limite de Temps (minutes, optionnel)"}</label>
+                  <input type="number" min="1" value={timeLimit} onChange={e => setTimeLimit(e.target.value)} placeholder={lang === "en" ? "No limit" : "Aucune limite"} className="input" />
+                </div>
               )}
 
               {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
@@ -317,12 +302,6 @@ export default function CourseAssessments() {
                                 <Clock className="w-3 h-3" strokeWidth={2} />
                                 {a.time_limit_minutes} min
                               </span>
-                            )}
-                            {a.external_url && (
-                              <a href={a.external_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-blue-500 hover:underline">
-                                <Link2 className="w-3 h-3" strokeWidth={2} />
-                                {lang === "en" ? "External link" : "Lien externe"}
-                              </a>
                             )}
                           </div>
                           <div className="flex items-center gap-3 flex-wrap">

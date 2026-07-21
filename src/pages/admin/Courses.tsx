@@ -21,6 +21,7 @@ interface CourseRow {
   objectives: string | null;
   duration: string | null;
   lecturer_locked: boolean;
+  requires_attendance_for_certificate: boolean;
   programs?: { title: string; title_fr?: string } | null;
   profiles?: { full_name: string } | null;
   studentCount?: number;
@@ -30,7 +31,7 @@ interface CourseRow {
 interface Program { id: string; title: string; title_fr: string | null; }
 interface Lecturer { id: string; full_name: string; }
 
-const EMPTY_FORM = { title: "", title_fr: "", code: "", program_id: "", lecturer_id: "", description: "", description_fr: "", objectives: "", duration: "", is_published: false, lecturer_locked: false };
+const EMPTY_FORM = { title: "", title_fr: "", code: "", program_id: "", lecturer_id: "", description: "", description_fr: "", objectives: "", duration: "", is_published: false, lecturer_locked: false, requires_attendance_for_certificate: false };
 
 export default function AdminCourses() {
   const { i18n } = useTranslation();
@@ -58,7 +59,7 @@ export default function AdminCourses() {
   const load = async () => {
     setLoading(true);
     const [cRes, pRes, lRes, linkRes] = await Promise.all([
-      supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, programs!courses_program_id_fkey(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
+      supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, requires_attendance_for_certificate, programs!courses_program_id_fkey(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
       supabase.from("programs").select("id, title, title_fr").order("title"),
       supabase.from("profiles").select("id, full_name").eq("role", "lecturer").order("full_name"),
       supabase.from("course_programs").select("course_id, program_id"),
@@ -109,7 +110,7 @@ export default function AdminCourses() {
   const openCreate = () => { setEditingId(null); setForm({ ...EMPTY_FORM }); setError(null); setLinkedProgramIds(new Set()); setShowModal(true); };
   const openEdit = async (c: CourseRow) => {
     setEditingId(c.id);
-    setForm({ title: c.title, title_fr: c.title_fr ?? "", code: c.code ?? "", program_id: c.program_id ?? "", lecturer_id: c.lecturer_id ?? "", description: c.description ?? "", description_fr: c.description_fr ?? "", objectives: c.objectives ?? "", duration: c.duration ?? "", is_published: c.is_published, lecturer_locked: c.lecturer_locked });
+    setForm({ title: c.title, title_fr: c.title_fr ?? "", code: c.code ?? "", program_id: c.program_id ?? "", lecturer_id: c.lecturer_id ?? "", description: c.description ?? "", description_fr: c.description_fr ?? "", objectives: c.objectives ?? "", duration: c.duration ?? "", is_published: c.is_published, lecturer_locked: c.lecturer_locked, requires_attendance_for_certificate: c.requires_attendance_for_certificate });
     setError(null);
     const { data } = await supabase.from("course_programs").select("program_id").eq("course_id", c.id);
     setLinkedProgramIds(new Set((data ?? []).map((r: { program_id: string }) => r.program_id)));
@@ -149,6 +150,7 @@ export default function AdminCourses() {
       duration: form.duration.trim() || null,
       is_published: form.is_published,
       lecturer_locked: form.lecturer_locked,
+      requires_attendance_for_certificate: form.requires_attendance_for_certificate,
     };
 
     const { error: err, data } = editingId
@@ -374,6 +376,17 @@ export default function AdminCourses() {
               <p className="text-xs text-slate mt-0.5">{lang === "en" ? "When on, only admin can edit this course's details and materials." : "Si activé, seul l'admin peut modifier ce cours et ses contenus."}</p>
             </div>
             <ToggleSwitch checked={form.lecturer_locked} onChange={v => setF("lecturer_locked", v)} />
+          </div>
+          <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
+            <div>
+              <p className="text-sm font-semibold text-ink">{lang === "en" ? "Require attendance for certificate" : "Exiger la présence pour le certificat"}</p>
+              <p className="text-xs text-slate mt-0.5">
+                {lang === "en"
+                  ? "When on, students must also meet the minimum attendance rate in this course to be certificate-eligible (in addition to materials and assessments/exams)."
+                  : "Si activé, les étudiants doivent aussi atteindre le taux de présence minimum dans ce cours pour être éligibles au certificat (en plus des ressources et évaluations/examens)."}
+              </p>
+            </div>
+            <ToggleSwitch checked={form.requires_attendance_for_certificate} onChange={v => setF("requires_attendance_for_certificate", v)} />
           </div>
           {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
           <div className="flex gap-3">

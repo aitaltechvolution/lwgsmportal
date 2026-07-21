@@ -41,7 +41,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const FROM_EMAIL = "admissions@lwgsm.livingwatersglobalministry.org";
-const SITE_URL = Deno.env.get("SITE_URL") ?? "https://lwgsm.livingwatersglobalministry.org";
+// Fallback if the admin hasn't set a custom callback URL in Settings yet.
+const DEFAULT_SITE_URL = Deno.env.get("SITE_URL") ?? "https://lwgsm.livingwatersglobalministry.org";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,6 +107,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Admin-configurable callback URL (Settings → Account Verification).
+    // Used for both the "log in" link sent to existing students and as the
+    // redirectTo for the new-account password-setup link, so both paths
+    // land the applicant on the same, admin-chosen site instead of
+    // whatever each code path happened to default to.
+    const { data: callbackSetting } = await admin
+      .from("site_settings")
+      .select("value")
+      .eq("key", "account_verification_redirect_url")
+      .maybeSingle();
+    const SITE_URL = (callbackSetting?.value || DEFAULT_SITE_URL).replace(/\/+$/, "");
+
     const { data: course } = await admin.from("courses").select("title, program_id").eq("id", app.course_id).maybeSingle();
     const courseTitle = course?.title ?? "your course";
 
@@ -132,11 +145,20 @@ Deno.serve(async (req: Request) => {
     if (app.student_id) {
       // Existing student applying for another course — just enrol them,
       // no account or password step needed.
-      await admin.from("enrollments").upsert(
+      const { error: enrollErr } = await admin.from("enrollments").upsert(
         { student_id: app.student_id, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
         { onConflict: "student_id,course_id" }
       );
       await admin.from("applications").update({ status: "approved" }).eq("id", applicationId);
+
+      if (enrollErr) {
+        return new Response(JSON.stringify({
+          error: "Application was approved, but enrolling the student in the course failed.",
+          debug: { message: enrollErr.message, code: enrollErr.code, details: enrollErr.details, hint: enrollErr.hint },
+        }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       const emailResult = await sendEmail(
         app.applicant_email,
@@ -181,16 +203,26 @@ Deno.serve(async (req: Request) => {
       nationality: app.nationality,
     }).eq("id", userId);
 
-    await admin.from("enrollments").upsert(
+    const { error: enrollErr } = await admin.from("enrollments").upsert(
       { student_id: userId, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
       { onConflict: "student_id,course_id" }
     );
 
     await admin.from("applications").update({ status: "approved", student_id: userId, invite_used: true }).eq("id", applicationId);
 
+    if (enrollErr) {
+      return new Response(JSON.stringify({
+        error: "Account was created, but enrolling the student in the course failed.",
+        debug: { message: enrollErr.message, code: enrollErr.code, details: enrollErr.details, hint: enrollErr.hint },
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
       type: "recovery",
       email: app.applicant_email,
+      options: { redirectTo: `${SITE_URL}/login` },
     });
 
     if (linkErr || !linkData) {

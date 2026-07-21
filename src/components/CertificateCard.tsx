@@ -9,6 +9,14 @@ export interface CertificateData {
   program_title_fr?: string | null;
   completion_date: string | null;
   verify_url: string;
+  /** Level-specific matric number (certificate / diploma / pastoral
+   *  ordination) — see supabase/migration_matric_certificate_payment.sql. */
+  matric_number?: string | null;
+  /** Whether the certificate-collection fee has been confirmed. When
+   *  false/undefined, a diagonal "PREVIEW" watermark is rendered over the
+   *  certificate. Defaults to true so any caller that hasn't been updated
+   *  to pass this yet keeps the old (unwatermarked) behaviour. */
+  is_paid?: boolean;
 }
 
 /**
@@ -19,7 +27,7 @@ export interface CertificateData {
  * on-screen preview with a CSS transform.
  */
 const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function CertificateCard(
-  { certificate_number, student_name, program_title_en, program_title_fr, completion_date, verify_url },
+  { certificate_number, student_name, program_title_en, program_title_fr, completion_date, verify_url, matric_number, is_paid = true },
   ref
 ) {
   const dateStr = completion_date
@@ -75,6 +83,12 @@ const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function Cer
           Date of Completion / Date d'achèvement: <span style={{ color: "white", fontWeight: 700 }}>{dateStr}</span>
         </div>
 
+        {matric_number && (
+          <div style={{ fontSize: 9, color: "rgba(200,200,250,0.6)", marginTop: 3 }}>
+            Matric No. / N° Matricule: <span style={{ color: "#E0BE4E", fontWeight: 700, fontFamily: "monospace" }}>{matric_number}</span>
+          </div>
+        )}
+
         {/* Footer row: signature + cert number + QR */}
         <div style={{ position: "absolute", bottom: 32, left: 51, right: 51, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
           <div style={{ textAlign: "left" }}>
@@ -96,6 +110,40 @@ const CertificateCard = forwardRef<HTMLDivElement, CertificateData>(function Cer
           </div>
         </div>
       </div>
+
+      {/* Unpaid / unconfirmed collection fee — diagonal tiled "PREVIEW"
+          watermark across the whole card. Rendered last so it sits above
+          every other layer; pointerEvents "none" keeps it from blocking
+          any future interactive controls. Removed entirely (not just
+          hidden) once is_paid is true, so paid certificates are 100% clean. */}
+      {!is_paid && (
+        <div
+          aria-hidden
+          style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 20 }}
+        >
+          {Array.from({ length: 5 }).map((_, row) =>
+            Array.from({ length: 4 }).map((_, col) => (
+              <div
+                key={`wm-${row}-${col}`}
+                style={{
+                  position: "absolute",
+                  top: row * 110 - 40,
+                  left: col * 200 - 70 + (row % 2 === 0 ? 0 : 100),
+                  fontSize: 30,
+                  fontWeight: 900,
+                  letterSpacing: 2,
+                  color: "rgba(255,255,255,0.22)",
+                  transform: "rotate(-30deg)",
+                  whiteSpace: "nowrap",
+                  textTransform: "uppercase",
+                }}
+              >
+                PREVIEW
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 });

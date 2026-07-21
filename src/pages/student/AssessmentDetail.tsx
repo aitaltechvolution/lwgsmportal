@@ -23,7 +23,6 @@ interface Assignment {
   max_score: number | null;
   time_limit_minutes: number | null;
   shuffle_questions: boolean;
-  external_url: string | null;
   courses?: { title: string; title_fr?: string; code?: string } | null;
 }
 
@@ -357,19 +356,6 @@ export default function AssessmentDetail() {
                     setSuccess(true);
                   }}
                 />
-              </>
-            ) : assignment.external_url ? (
-              <>
-                <h3 className="font-bold text-ink mb-2">{lang === "en" ? "Hosted Externally" : "Hébergé en Externe"}</h3>
-                <p className="text-sm text-slate mb-4">
-                  {lang === "en"
-                    ? "This test is hosted on an external site. Complete it there, then your lecturer will enter your score manually once available."
-                    : "Ce test est hébergé sur un site externe. Complétez-le là-bas ; votre enseignant saisira votre note manuellement."}
-                </p>
-                <a href={assignment.external_url} target="_blank" rel="noopener noreferrer" className="btn-primary w-full justify-center">
-                  <ExternalLink className="w-4 h-4" strokeWidth={2} />
-                  {lang === "en" ? "Open Test" : "Ouvrir le Test"}
-                </a>
               </>
             ) : (
               <>

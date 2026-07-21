@@ -174,6 +174,14 @@ export default function AdminFaculty() {
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : (lang === "en" ? "Failed to create account." : "Échec de la création."));
+      // The edge function can report a non-2xx error even after its DB
+      // writes already committed (e.g. a slow cold start tripping a
+      // timeout right after everything succeeded server-side). Without
+      // this, the admin sees an error toast but the table stays stale
+      // until they manually reload the page, even though the lecturer
+      // (and their courses) were actually created. Refresh regardless so
+      // the UI always reflects the true current state.
+      load();
     } finally {
       setSaving(false);
     }

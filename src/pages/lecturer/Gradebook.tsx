@@ -13,6 +13,7 @@ interface Course {
   code: string | null;
   grades_published: boolean;
   grades_published_at: string | null;
+  requires_attendance_for_certificate: boolean;
 }
 
 interface Assignment {
@@ -41,6 +42,11 @@ interface SubmissionScore {
   score: number | null;
 }
 
+interface AttendanceEntry {
+  student_id: string;
+  attendance_pct: number | null;
+}
+
 function pctColor(score: number, max: number) {
   const p = (score / max) * 100;
   if (p >= 75) return "text-green-600";
@@ -59,13 +65,14 @@ export default function Gradebook() {
   const [students, setStudents] = useState<Student[]>([]);
   const [grades, setGrades] = useState<GradeEntry[]>([]);
   const [submissionScores, setSubmissionScores] = useState<SubmissionScore[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
 
   // Load lecturer courses
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from("courses").select("id, title, title_fr, code, grades_published, grades_published_at").eq("lecturer_id", profile.id).order("title")
+    supabase.from("courses").select("id, title, title_fr, code, grades_published, grades_published_at, requires_attendance_for_certificate").eq("lecturer_id", profile.id).order("title")
       .then(({ data }) => {
         const list = (data ?? []) as Course[];
         setCourses(list);
@@ -80,10 +87,11 @@ export default function Gradebook() {
     setLoading(true);
 
     async function load() {
-      const [asgRes, enrRes, gradeRes] = await Promise.all([
+      const [asgRes, enrRes, gradeRes, attRes] = await Promise.all([
         supabase.from("assignments").select("id, title_en, title_fr, max_score").eq("course_id", selectedCourse).order("due_date"),
         supabase.from("enrollments").select("student_id, profiles(id, full_name, email)").eq("course_id", selectedCourse).eq("status", "active"),
         supabase.from("grades").select("*").eq("course_id", selectedCourse),
+        supabase.from("course_attendance_summary").select("student_id, attendance_pct").eq("course_id", selectedCourse),
       ]);
 
       const asgList = (asgRes.data ?? []) as Assignment[];
@@ -93,6 +101,7 @@ export default function Gradebook() {
         .filter(Boolean) as Student[];
       setStudents(studentList);
       setGrades((gradeRes.data ?? []) as GradeEntry[]);
+      setAttendance((attRes.data ?? []) as AttendanceEntry[]);
 
       if (asgList.length > 0) {
         const { data: subs } = await supabase
@@ -121,6 +130,7 @@ export default function Gradebook() {
   const getGradeEntry = (studentId: string) => grades.find(g => g.student_id === studentId);
   const getSubmissionScore = (studentId: string, assignmentId: string) =>
     submissionScores.find(s => s.student_id === studentId && s.assignment_id === assignmentId)?.score ?? null;
+  const getAttendancePct = (studentId: string) => attendance.find(a => a.student_id === studentId)?.attendance_pct ?? null;
   const getOverallPct = (studentId: string) => {
     const scored = assignments
       .map(a => ({ score: getSubmissionScore(studentId, a.id), max: a.max_score ?? 100 }))
@@ -189,6 +199,11 @@ export default function Gradebook() {
                       ? "Publishing makes final grades visible to enrolled students and counts this course toward their certificate eligibility."
                       : "La publication rend les notes finales visibles aux étudiants inscrits et compte ce cours dans leur éligibilité au certificat."}
                   </p>
+                  <p className="text-xs mt-1 text-slate">
+                    {selectedCourseObj.requires_attendance_for_certificate
+                      ? (lang === "en" ? "📋 This course also requires attendance for certificate eligibility." : "📋 Ce cours exige aussi la présence pour l'éligibilité au certificat.")
+                      : (lang === "en" ? "This course does not require attendance for certificate eligibility." : "Ce cours n'exige pas la présence pour l'éligibilité au certificat.")}
+                  </p>
                 </div>
               </div>
               <button
@@ -229,6 +244,9 @@ export default function Gradebook() {
                       <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">
                         {lang === "en" ? "Overall" : "Global"}
                       </th>
+                      <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">
+                        {lang === "en" ? "Attendance" : "Présence"}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -262,6 +280,13 @@ export default function Gradebook() {
                             ) : (
                               <span className="text-gray-400 text-xs italic">{lang === "en" ? "Not graded" : "Non noté"}</span>
                             )}
+                          </td>
+                          <td className="text-center px-5 py-3.5">
+                            {(() => {
+                              const pct = getAttendancePct(stu.id);
+                              if (pct === null) return <span className="text-gray-400 text-xs">—</span>;
+                              return <span className={`font-bold text-xs ${pct >= 75 ? "text-green-600" : pct >= 50 ? "text-yellow-600" : "text-red-600"}`}>{pct}%</span>;
+                            })()}
                           </td>
                         </tr>
                       );

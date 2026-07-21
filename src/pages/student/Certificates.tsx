@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Award, Download, ShieldCheck, ShieldQuestion, BadgeCheck, Loader2, CheckCircle2 } from "lucide-react";
+import { Award, Download, ShieldCheck, ShieldQuestion, BadgeCheck, CheckCircle2, AlertCircle as AlertCircleIcon } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard, ProgressBar } from "@/components/ui/primitives";
-import { useToast } from "@/contexts/ToastContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import CertificatePreviewModal from "@/components/CertificatePreviewModal";
 import { CertificateData } from "@/components/CertificateCard";
@@ -20,6 +20,8 @@ interface Certificate {
   certificate_url: string | null;
   qr_code_url: string | null;
   program_id: string | null;
+  matric_number: string | null;
+  is_paid: boolean;
   programs?: { title: string; title_fr?: string } | null;
 }
 
@@ -37,30 +39,26 @@ export default function StudentCertificates() {
   const { profile } = useAuth();
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { showToast } = useToast();
   const { format } = useCurrency();
+  const navigate = useNavigate();
 
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [eligibility, setEligibility] = useState<EligibilityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewCert, setPreviewCert] = useState<Certificate | null>(null);
-  const [requestingId, setRequestingId] = useState<string | null>(null);
-  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [certFee, setCertFee] = useState(0);
 
   const load = async () => {
     if (!profile?.id) return;
     setLoading(true);
-    const [certRes, eligRes, feeRes, payRes] = await Promise.all([
+    const [certRes, eligRes, feeRes] = await Promise.all([
       supabase.from("certificates").select("*, programs(title, title_fr)").eq("student_id", profile.id).order("issue_date", { ascending: false }),
       supabase.from("certificate_eligibility").select("*, programs:program_id(title, title_fr)").eq("student_id", profile.id),
       supabase.from("site_settings").select("value").eq("key", "fee_certificate").maybeSingle(),
-      supabase.from("payments").select("description, reference").eq("student_id", profile.id).eq("type", "certificate").eq("status", "pending"),
     ]);
     setCerts((certRes.data ?? []) as unknown as Certificate[]);
     setEligibility((eligRes.data ?? []) as unknown as EligibilityRow[]);
     setCertFee(Number(feeRes.data?.value ?? 0));
-    setRequestedIds(new Set((payRes.data ?? []).map((p: { reference: string | null }) => p.reference).filter(Boolean) as string[]));
     setLoading(false);
   };
 
@@ -75,32 +73,24 @@ export default function StudentCertificates() {
     program_title_fr: c.programs?.title_fr ?? null,
     completion_date: c.completion_date,
     verify_url: `${window.location.origin}/verify?cert=${c.certificate_number}`,
+    matric_number: c.matric_number,
+    is_paid: c.is_paid,
   });
 
-  const onRequestCollection = async (cert: Certificate) => {
-    if (!profile?.id) return;
-    setRequestingId(cert.id);
-    try {
-      const reference = `cert-collect-${cert.id}`;
-      const { error } = await supabase.from("payments").insert({
-        student_id: profile.id,
-        type: "certificate",
-        amount: certFee,
-        currency: "USD",
-        amount_usd: certFee,
-        method: "bank_transfer",
-        status: "pending",
-        reference,
-        description: lang === "en" ? `Certificate collection — ${cert.certificate_number}` : `Retrait de certificat — ${cert.certificate_number}`,
-      });
-      if (error) throw error;
-      setRequestedIds(prev => new Set(prev).add(reference));
-      showToast("success", lang === "en" ? "Collection request submitted! Visit Payments to complete payment." : "Demande soumise ! Consultez Paiements pour régler.");
-    } catch {
-      showToast("error", lang === "en" ? "Could not submit your request." : "Échec de la demande.");
-    } finally {
-      setRequestingId(null);
-    }
+  // Previously this inserted a 'pending' bank_transfer payments row
+  // directly, with no way to know a payment already existed for this
+  // certificate — so re-clicking (or an admin manually recording the
+  // payment) created a second, duplicate row. The Payments page already
+  // solves exactly this for registration/material fees via its
+  // `existingBannerPayment` guard, so certificates now go through the
+  // same page/flow instead of duplicating that logic here.
+  const onRequestCertificate = (cert: Certificate) => {
+    const params = new URLSearchParams({
+      certificateId: cert.id,
+      certNumber: encodeURIComponent(cert.certificate_number),
+      certAmount: String(certFee),
+    });
+    navigate(`/student/payments?${params.toString()}`);
   };
 
   // Eligibility rows that haven't yet resulted in an issued certificate —
@@ -163,8 +153,6 @@ export default function StudentCertificates() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
           {certs.map(cert => {
             const progTitle = cert.programs ? ((lang === "fr" && cert.programs.title_fr) ? cert.programs.title_fr : cert.programs.title) : null;
-            const collectionRef = `cert-collect-${cert.id}`;
-            const alreadyRequested = requestedIds.has(collectionRef);
             return (
               <div key={cert.id} className="card card-hover overflow-hidden">
                 <div className="h-1.5 bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-400" />
@@ -175,6 +163,17 @@ export default function StudentCertificates() {
                     </Badge>
                     <span className="text-xs font-mono text-gray-400">{cert.certificate_number}</span>
                   </div>
+
+                  {!cert.is_paid && (
+                    <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                      <AlertCircleIcon className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" strokeWidth={2} />
+                      <p className="text-xs text-amber-700">
+                        {lang === "en"
+                          ? "Collection fee not yet confirmed — your certificate shows a PREVIEW watermark until payment is confirmed."
+                          : "Frais de retrait non encore confirmés — votre certificat affiche un filigrane APERÇU jusqu'à confirmation du paiement."}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-50 to-yellow-50 flex items-center justify-center mb-4">
                     <Award className="w-7 h-7 text-amber-500" strokeWidth={1.75} />
@@ -204,22 +203,15 @@ export default function StudentCertificates() {
                     </a>
                   </div>
 
-                  <button
-                    onClick={() => onRequestCollection(cert)}
-                    disabled={requestingId === cert.id || alreadyRequested}
-                    className="w-full flex items-center justify-center gap-2 text-sm font-bold border border-amber-200 text-brand hover:bg-orange-50 py-2.5 rounded-xl transition-all disabled:opacity-60"
-                  >
-                    {requestingId === cert.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2} />
-                    ) : alreadyRequested ? (
-                      <CheckCircle2 className="w-4 h-4" strokeWidth={2} />
-                    ) : (
+                  {!cert.is_paid && (
+                    <button
+                      onClick={() => onRequestCertificate(cert)}
+                      className="w-full flex items-center justify-center gap-2 text-sm font-bold border border-amber-200 text-brand hover:bg-orange-50 py-2.5 rounded-xl transition-all disabled:opacity-60"
+                    >
                       <Award className="w-4 h-4" strokeWidth={2} />
-                    )}
-                    {alreadyRequested
-                      ? (lang === "en" ? "Collection Requested" : "Retrait Demandé")
-                      : (lang === "en" ? `Request Physical Collection${certFee ? ` (${format(certFee)})` : ""}` : `Demander le Retrait Physique${certFee ? ` (${format(certFee)})` : ""}`)}
-                  </button>
+                      {lang === "en" ? `Request Certificate${certFee ? ` (${format(certFee)})` : ""}` : `Demander le Certificat${certFee ? ` (${format(certFee)})` : ""}`}
+                    </button>
+                  )}
                 </div>
               </div>
             );

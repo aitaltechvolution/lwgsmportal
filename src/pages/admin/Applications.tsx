@@ -77,6 +77,11 @@ export default function AdminApplications() {
 
     if (fnErr || data?.error) {
       showToast("error", data?.error ?? fnErr?.message ?? "Something went wrong.");
+      // process-application-decision updates the application's status
+      // *before* attempting the enrollment step, so a reported enrollment
+      // failure can still mean the status already changed server-side.
+      // Refresh so the list doesn't keep showing a stale "pending" row.
+      load();
       return;
     }
 

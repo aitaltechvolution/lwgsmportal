@@ -216,15 +216,15 @@ export default function LecturerAttendance() {
   const markOnsite = async (session: Session, studentId: string) => {
     if (!profile?.id) return;
     setMarkingOnsite(`${session.id}-${studentId}`);
-    const { error } = await supabase.from("attendance_logs").insert({
-      session_id: session.id,
-      student_id: studentId,
-      course_id: session.course_id,
-      status: "approved",
-      method: "lecturer",
-      marked_by: profile.id,
-      confirmed_by: profile.id,
-      confirmed_at: new Date().toISOString(),
+    // Uses an upsert RPC (ON CONFLICT session_id+student_id DO UPDATE)
+    // instead of a plain insert — a plain insert would throw a duplicate
+    // key violation whenever a log already exists for this student in
+    // this session (e.g. they'd already self-checked-in as pending).
+    const { error } = await supabase.rpc("mark_attendance_onsite", {
+      p_session_id: session.id,
+      p_student_id: studentId,
+      p_course_id: session.course_id,
+      p_marked_by: profile.id,
     });
     if (error) {
       showToast("error", error.message);

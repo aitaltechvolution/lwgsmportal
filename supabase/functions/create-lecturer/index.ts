@@ -89,31 +89,34 @@ Deno.serve(async (req: Request) => {
 
     const uid = created.user.id;
 
-    // Step 2: upsert profile as lecturer (handle_new_user trigger creates
-    // it as a bare/student row first — fill in the real details & role).
-    const { error: profErr } = await admin.from("profiles").upsert({
-      id: uid,
-      full_name: full_name.trim(),
-      title: title?.trim() || null,
-      email: email.trim(),
-      role: "lecturer",
-      phone: phone?.trim() || null,
-      country: country?.trim() || null,
+    // Step 2: upsert profile as lecturer AND assign selected courses in a
+    // single DB round trip via the setup_lecturer_profile() RPC (see
+    // supabase/migrations/003_setup_lecturer_profile_rpc.sql). Doing both
+    // in one transaction means they either both succeed or both roll back
+    // together — previously these were two separate sequential calls,
+    // which meant a slow/failed second call could leave a lecturer profile
+    // created with no courses attached, and cost an extra network hop that
+    // made the whole function more likely to trip a timeout.
+    const { error: setupErr } = await admin.rpc("setup_lecturer_profile", {
+      p_id: uid,
+      p_full_name: full_name.trim(),
+      p_title: title?.trim() || null,
+      p_email: email.trim(),
+      p_phone: phone?.trim() || null,
+      p_country: country?.trim() || null,
+      p_course_ids: Array.isArray(courseIds) && courseIds.length > 0 ? courseIds : null,
     });
-    if (profErr) {
-      return new Response(JSON.stringify({ error: profErr.message }), {
+    if (setupErr) {
+      // The auth user was created either way — surface that so the admin
+      // (or a retry) knows not to try creating this email again from
+      // scratch, even though profile/course setup failed.
+      return new Response(JSON.stringify({
+        error: setupErr.message,
+        userId: uid,
+        note: "Auth account was created but profile/course setup failed. Re-running with the same email will fail (already registered) — contact support to finish setup manually for this user id.",
+      }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    // Step 3: assign selected courses, if any.
-    if (Array.isArray(courseIds) && courseIds.length > 0) {
-      const { error: courseErr } = await admin.from("courses").update({ lecturer_id: uid }).in("id", courseIds);
-      if (courseErr) {
-        return new Response(JSON.stringify({ error: courseErr.message }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
     }
 
     return new Response(JSON.stringify({ success: true, id: uid }), {

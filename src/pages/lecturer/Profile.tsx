@@ -4,7 +4,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, XCircle, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { LANGUAGES, COUNTRIES } from "@/lib/constants";
 import AvatarUpload from "@/components/AvatarUpload";
 
@@ -26,7 +26,6 @@ export default function LecturerProfile() {
   const [newPwd, setNewPwd]         = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdSaving, setPwdSaving]   = useState(false);
-  const [msg, setMsg]               = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
     if (profile) {
@@ -39,7 +38,7 @@ export default function LecturerProfile() {
     }
   }, [profile]);
 
-  const showMsg = (type: "ok" | "err", text: string) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
+  const showMsg = (type: "ok" | "err", text: string) => showToast(type === "ok" ? "success" : "error", text);
 
   const onSaveProfile = async (e: FormEvent) => {
     e.preventDefault();
@@ -99,14 +98,6 @@ export default function LecturerProfile() {
             </span>
           </div>
         </div>
-
-        {msg && (
-          <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 animate-fade-in
-            ${msg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-            {msg.type === "ok" ? <CheckCircle2 className="w-4 h-4" strokeWidth={2} /> : <XCircle className="w-4 h-4" strokeWidth={2} />}
-            {msg.text}
-          </div>
-        )}
 
         <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
           <h3 className="font-bold text-ink mb-5 flex items-center gap-2">

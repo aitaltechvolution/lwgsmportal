@@ -139,11 +139,29 @@ export default function StudentPayments() {
   const registerAmount = searchParams.get('amount');
   const registerAmountNgn = searchParams.get('amountNgn');
   const registerCourseTitle = searchParams.get('courseTitle');
+  // Certificate collection fee — student lands here from the "Request
+  // Certificate" button on the Certificates page instead of that page
+  // silently inserting its own pending bank-transfer row (which had no
+  // way to prevent a second, duplicate submission). Reusing this page's
+  // existing pending/success guard (`existingBannerPayment` below) is
+  // what actually prevents the double-payment problem.
+  const certificateId = searchParams.get('certificateId');
+  const certNumber = searchParams.get('certNumber');
+  const certAmount = searchParams.get('certAmount');
 
   const isRegisterFlow = !!registerCourseId;
-  const bannerItemId = unlockMaterialId ?? registerCourseId;
-  const bannerTitle = isRegisterFlow ? registerCourseTitle : unlockTitle;
-  const bannerAmountUsd = Number((isRegisterFlow ? registerAmount : unlockPrice) ?? 0);
+  const isCertificateFlow = !isRegisterFlow && !!certificateId;
+  const bannerItemId = unlockMaterialId ?? registerCourseId ?? (isCertificateFlow ? certificateId : null);
+  const bannerTitle = isRegisterFlow ? registerCourseTitle : isCertificateFlow ? certNumber : unlockTitle;
+  const bannerAmountUsd = Number((isRegisterFlow ? registerAmount : isCertificateFlow ? certAmount : unlockPrice) ?? 0);
+  // The exact string stored on the payments row's `description` for a
+  // certificate fee — there's no dedicated certificate_id column on
+  // `payments`, so this is how we recognise "a payment for *this*
+  // certificate already exists" further down. Deliberately NOT
+  // language-dependent: if it were, a student who switches UI language
+  // between requesting and revisiting this page would fail to match
+  // their own existing payment and could pay twice.
+  const certDescription = certNumber ? `Certificate collection — ${decodeURIComponent(certNumber)}` : null;
   // Registration fees are configured by the admin in exact Naira — use
   // that figure directly for the charge/record. Never recompute it via
   // amountUsd * exchangeRate, which introduces rounding drift (e.g. an
@@ -175,7 +193,8 @@ export default function StudentPayments() {
     ? payments.find(p =>
         (p.status === "pending" || p.status === "success") &&
         (isRegisterFlow ? p.course_id === registerCourseId && p.type === "registration"
-                        : p.material_id === unlockMaterialId)
+         : isCertificateFlow ? p.description === certDescription && p.type === "certificate"
+         : p.material_id === unlockMaterialId)
       ) ?? null
     : null;
 
@@ -217,9 +236,10 @@ export default function StudentPayments() {
         amountNgn: bannerAmountNgn ?? undefined,
         exchangeRate,
         studentId: profile.id,
-        paymentType: isRegisterFlow ? "registration" : "material",
+        paymentType: isRegisterFlow ? "registration" : isCertificateFlow ? "certificate" : "material",
         publicKey,
         courseId: isRegisterFlow ? registerCourseId! : undefined,
+        description: isCertificateFlow ? certDescription ?? undefined : undefined,
       });
       if (result.status === "success") {
         showToast("success", lang === "en" ? "Payment successful! Access unlocked." : "Paiement réussi ! Accès débloqué.");
@@ -249,15 +269,17 @@ export default function StudentPayments() {
       currency: 'NGN',
       amount_usd: bannerAmountUsd || 0,
       amount_ngn: amountNgn,
-      type: isRegisterFlow ? 'registration' : 'material',
+      type: isRegisterFlow ? 'registration' : isCertificateFlow ? 'certificate' : 'material',
       status: 'pending',
       method: 'bank_transfer',
       transfer_reference: transferRef.trim(),
-      material_id: isRegisterFlow ? null : unlockMaterialId,
+      material_id: (isRegisterFlow || isCertificateFlow) ? null : unlockMaterialId,
       course_id: isRegisterFlow ? registerCourseId : null,
-      description: bannerTitle
-        ? `${isRegisterFlow ? 'Registration' : 'Unlock'}: ${decodeURIComponent(bannerTitle)}`
-        : (isRegisterFlow ? 'Course registration' : 'Premium material'),
+      description: isCertificateFlow
+        ? (certDescription ?? 'Certificate collection')
+        : (bannerTitle
+            ? `${isRegisterFlow ? 'Registration' : 'Unlock'}: ${decodeURIComponent(bannerTitle)}`
+            : (isRegisterFlow ? 'Course registration' : 'Premium material')),
     });
     if (error) {
       showToast('error', error.message);
@@ -294,7 +316,11 @@ export default function StudentPayments() {
           <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
             <div>
               <p className="text-xs font-bold text-brand uppercase tracking-wider mb-1">
-                {isRegisterFlow ? (lang === "en" ? "Course Registration Required" : "Inscription au Cours Requise") : (lang === "en" ? "Unlock Premium Material" : "Débloquer le Contenu Premium")}
+                {isRegisterFlow
+                  ? (lang === "en" ? "Course Registration Required" : "Inscription au Cours Requise")
+                  : isCertificateFlow
+                    ? (lang === "en" ? "Certificate Collection Fee" : "Frais de Retrait de Certificat")
+                    : (lang === "en" ? "Unlock Premium Material" : "Débloquer le Contenu Premium")}
               </p>
               <p className="font-bold text-ink">{bannerTitle ? decodeURIComponent(bannerTitle) : ""}</p>
               <p className="text-2xl font-black text-navy mt-1">{fmtBannerAmount()}</p>
@@ -305,7 +331,9 @@ export default function StudentPayments() {
             <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
               <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" strokeWidth={2} />
               <p className="text-sm text-green-700 font-medium">
-                {lang === "en" ? "Payment confirmed — this should already be unlocked." : "Paiement confirmé — cela devrait déjà être débloqué."}
+                {isCertificateFlow
+                  ? (lang === "en" ? "Payment confirmed — your certificate is fully paid." : "Paiement confirmé — votre certificat est entièrement payé.")
+                  : (lang === "en" ? "Payment confirmed — this should already be unlocked." : "Paiement confirmé — cela devrait déjà être débloqué.")}
               </p>
             </div>
           ) : existingBannerPayment?.status === "pending" ? (

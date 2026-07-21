@@ -8,9 +8,9 @@ import { EmptyState, SkeletonRow } from "@/components/ui/primitives";
 
 interface Announcement {
   id: string;
-  title: string;
+  title_en: string;
   title_fr: string | null;
-  body: string;
+  body_en: string;
   body_fr: string | null;
   target_role: string | null;
   created_at: string;
@@ -26,13 +26,24 @@ export default function StudentAnnouncements() {
 
   useEffect(() => {
     if (!profile) return;
+    const nowIso = new Date().toISOString();
     supabase
       .from("announcements")
-      .select("id, title, title_fr, body, body_fr, target_role, created_at, is_published")
+      // The table's real columns are title_en/body_en (with optional
+      // _fr translations) — selecting "title"/"body" doesn't exist and
+      // was making this query fail outright, which is why nothing ever
+      // showed up here.
+      .select("id, title_en, title_fr, body_en, body_fr, target_role, created_at, is_published, scheduled_at")
       .eq("is_published", true)
       .or("target_role.is.null,target_role.eq.public,target_role.eq.student")
+      // An announcement with no scheduled_at set (or one scheduled for
+      // the past) should show. Comparing NULL with <= is never true in
+      // Postgres, so a plain .lte() here would silently hide any
+      // announcement that never got a scheduled_at value.
+      .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
       .order("created_at", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error("Failed to load announcements:", error);
         setItems((data ?? []) as Announcement[]);
         setLoading(false);
       });
@@ -72,8 +83,8 @@ export default function StudentAnnouncements() {
       ) : (
         <div className="space-y-3 stagger-children">
           {items.map(a => {
-            const title = (lang === "fr" && a.title_fr) ? a.title_fr : a.title;
-            const body  = (lang === "fr" && a.body_fr)  ? a.body_fr  : a.body;
+            const title = (lang === "fr" && a.title_fr) ? a.title_fr : a.title_en;
+            const body  = (lang === "fr" && a.body_fr)  ? a.body_fr  : a.body_en;
             return (
               <div key={a.id} className="card card-hover p-5 animate-fade-in-up">
                 <div className="flex items-start gap-4">

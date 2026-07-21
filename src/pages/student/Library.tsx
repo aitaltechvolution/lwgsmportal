@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -36,12 +37,18 @@ export default function StudentLibrary() {
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
   const { format } = useCurrency();
+  const navigate = useNavigate();
   const [items, setItems]   = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [search, setSearch] = useState("");
   const [viewing, setViewing] = useState<LibraryItem | null>(null);
   const [textViewing, setTextViewing] = useState<LibraryItem | null>(null);
+  // Which premium materials this student has actually paid for — without
+  // this, is_premium alone was used to decide "locked", so a paid-for
+  // material still showed as locked here even though CourseDetail.tsx
+  // (which does check payments) correctly showed it unlocked.
+  const [unlockedMaterialIds, setUnlockedMaterialIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -49,8 +56,17 @@ export default function StudentLibrary() {
       const { data: enrData } = await supabase.from("enrollments").select("course_id").eq("student_id", profile!.id).eq("status", "active");
       const ids = (enrData ?? []).map((e: { course_id: string }) => e.course_id).filter(Boolean);
       if (ids.length === 0) { setLoading(false); return; }
-      const { data } = await supabase.from("course_materials").select("*, courses(title, title_fr, code)").in("course_id", ids).order("created_at", { ascending: false });
+      const [{ data }, { data: unlockData }] = await Promise.all([
+        supabase.from("course_materials").select("*, courses(title, title_fr, code)").in("course_id", ids).order("created_at", { ascending: false }),
+        supabase.from("payments").select("material_id, status, manual_confirmed")
+          .eq("student_id", profile!.id).not("material_id", "is", null),
+      ]);
       setItems((data ?? []) as unknown as LibraryItem[]);
+      setUnlockedMaterialIds(new Set(
+        (unlockData ?? [])
+          .filter((p: { status: string; manual_confirmed: boolean }) => p.status === "success" || p.manual_confirmed)
+          .map((p: { material_id: string }) => p.material_id)
+      ));
       setLoading(false);
     }
     load();
@@ -125,8 +141,11 @@ export default function StudentLibrary() {
                   </div>
                 </div>
                 <div className="px-5 pb-5">
-                  {item.is_premium ? (
-                    <button className="w-full text-sm font-bold bg-yellow-50 hover:bg-yellow-100 text-yellow-800 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5">
+                  {item.is_premium && !unlockedMaterialIds.has(item.id) ? (
+                    <button
+                      onClick={() => navigate(`/student/payments?unlock=${item.id}&course=${item.course_id}&price=${item.price ?? 0}&title=${encodeURIComponent(title)}`)}
+                      className="w-full text-sm font-bold bg-yellow-50 hover:bg-yellow-100 text-yellow-800 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                    >
                       <Lock className="w-3.5 h-3.5" strokeWidth={2} />
                       {lang === "en" ? "Unlock" : "Déverrouiller"}{item.price ? ` · ${format(item.price)}` : ""}
                     </button>

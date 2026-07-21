@@ -49,6 +49,24 @@ const TYPE_META: Record<QType, { icon: typeof ListTodo; en: string; fr: string; 
 
 function newId() { return Math.random().toString(36).slice(2, 10); }
 
+// Two options count as duplicates if their text matches once trimmed and
+// case-folded — "Paris" and "paris" are the same answer to a student, even
+// though they're different strings. Blank options are ignored here; the
+// separate "every option needs text" check in onSaveAll already covers
+// those.
+function findDuplicateOptionIds(options: OptionRow[]): Set<string> {
+  const firstSeenAt = new Map<string, string>();
+  const dupIds = new Set<string>();
+  for (const o of options) {
+    const key = o.label_en.trim().toLowerCase();
+    if (!key) continue;
+    const firstId = firstSeenAt.get(key);
+    if (firstId) { dupIds.add(firstId); dupIds.add(o.id); }
+    else firstSeenAt.set(key, o.id);
+  }
+  return dupIds;
+}
+
 // ── CSV Parser ─────────────────────────────────────────────────────────────────
 // Expected CSV format (header row required):
 // prompt_en, type, option_a, option_b, option_c, option_d, correct, points
@@ -86,6 +104,9 @@ function parseCSV(text: string): { questions: QuestionRow[]; errors: string[] } 
       const correctMap: Record<string, string> = { a: optA, b: optB, c: optC, d: optD };
       const opts = [optA, optB, optC, optD].filter(Boolean);
       if (opts.length < 2) { errors.push(`Row ${i + 1}: Need at least 2 options for MC.`); continue; }
+      const dupCheck = new Set<string>();
+      const dup = opts.find(o => { const k = o.trim().toLowerCase(); if (dupCheck.has(k)) return true; dupCheck.add(k); return false; });
+      if (dup) { errors.push(`Row ${i + 1}: Duplicate option "${dup}" — each option must be unique.`); continue; }
       questions.push({
         id: `new-${newId()}`, question_type: "multiple_choice",
         prompt_en: prompt, prompt_fr: null, points: pts,
@@ -254,6 +275,16 @@ export default function QuestionBuilder() {
           if (opts.length < 2) throw new Error(lang === "en" ? "Multiple choice needs at least 2 options." : "Choix multiple nécessite au moins 2 options.");
           if (!opts.some(o => o.is_correct)) throw new Error(lang === "en" ? "Mark one option as correct." : "Indiquez une option correcte.");
           if (opts.some(o => !o.label_en.trim())) throw new Error(lang === "en" ? "Every option needs English text." : "Chaque option nécessite un texte.");
+          // No two options in the same question may have the same text —
+          // that's an unusable duplicate answer for a student to choose
+          // between. Matches the live inline check shown in the form.
+          const dupIds = findDuplicateOptionIds(opts);
+          if (dupIds.size > 0) {
+            const dupText = opts.find(o => dupIds.has(o.id))?.label_en.trim() ?? "";
+            throw new Error(lang === "en"
+              ? `Question ${idx + 1} has duplicate options: "${dupText}". Each option must be unique.`
+              : `La question ${idx + 1} contient des options en double : « ${dupText} ». Chaque option doit être unique.`);
+          }
         }
         if (q.question_type === "short_answer" && !(q.correct_answers ?? []).some(a => a.trim()))
           throw new Error(lang === "en" ? "Provide at least one accepted answer." : "Indiquez au moins une réponse acceptée.");
@@ -317,6 +348,9 @@ export default function QuestionBuilder() {
 
   const title = assignment ? ((lang === "fr" && assignment.title_fr) ? assignment.title_fr : assignment.title_en) : "…";
   const totalPoints = questions.reduce((s, q) => s + (q.points || 0), 0);
+  const hasDuplicateOptions = questions.some(q =>
+    q.question_type === "multiple_choice" && findDuplicateOptionIds(q.question_options ?? []).size > 0
+  );
 
   return (
     <LecturerLayout breadcrumbs={[
@@ -347,7 +381,8 @@ export default function QuestionBuilder() {
             {importing ? <Loader2 className="w-4 h-4 animate-spin text-navy" strokeWidth={2} /> : <Upload className="w-4 h-4 text-navy" strokeWidth={2} />}
             {lang === "en" ? "Import CSV" : "Importer CSV"}
           </label>
-          <button onClick={onSaveAll} disabled={saving || questions.length === 0}
+          <button onClick={onSaveAll} disabled={saving || questions.length === 0 || hasDuplicateOptions}
+            title={hasDuplicateOptions ? (lang === "en" ? "Fix duplicate options before saving." : "Corrigez les options en double avant d'enregistrer.") : undefined}
             className="btn-primary disabled:opacity-60 disabled:translate-y-0">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />}
             {saving ? (lang === "en" ? "Saving…" : "Enregistrement…") : (lang === "en" ? "Save All" : "Enregistrer Tout")}
@@ -452,21 +487,34 @@ export default function QuestionBuilder() {
 
                 {q.question_type === "multiple_choice" && (
                   <div className="space-y-2 pl-7">
-                    {(q.question_options ?? []).map(o => (
-                      <div key={o.id} className="flex items-center gap-2">
-                        <button type="button" onClick={() => setCorrectOption(q.id, o.id)} className="flex-shrink-0">
-                          {o.is_correct
-                            ? <CheckCircle2 className="w-5 h-5 text-green-500" strokeWidth={2} />
-                            : <Circle className="w-5 h-5 text-gray-300 hover:text-navy/50 transition-colors" strokeWidth={2} />}
-                        </button>
-                        <input type="text" value={o.label_en}
-                          onChange={e => updateOption(q.id, o.id, { label_en: e.target.value })}
-                          placeholder={lang === "en" ? "Option text" : "Texte de l'option"} className="input flex-1" />
-                        <button onClick={() => removeOption(q.id, o.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
-                          <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
-                        </button>
-                      </div>
-                    ))}
+                    {(() => {
+                      const dupIds = findDuplicateOptionIds(q.question_options ?? []);
+                      return (q.question_options ?? []).map(o => {
+                        const isDup = dupIds.has(o.id);
+                        return (
+                          <div key={o.id} className="flex items-center gap-2">
+                            <button type="button" onClick={() => setCorrectOption(q.id, o.id)} className="flex-shrink-0">
+                              {o.is_correct
+                                ? <CheckCircle2 className="w-5 h-5 text-green-500" strokeWidth={2} />
+                                : <Circle className="w-5 h-5 text-gray-300 hover:text-navy/50 transition-colors" strokeWidth={2} />}
+                            </button>
+                            <input type="text" value={o.label_en}
+                              onChange={e => updateOption(q.id, o.id, { label_en: e.target.value })}
+                              placeholder={lang === "en" ? "Option text" : "Texte de l'option"}
+                              className={`input flex-1 ${isDup ? "border-red-400 bg-red-50/60 focus:border-red-500" : ""}`} />
+                            <button onClick={() => removeOption(q.id, o.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
+                              <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+                            </button>
+                          </div>
+                        );
+                      });
+                    })()}
+                    {findDuplicateOptionIds(q.question_options ?? []).size > 0 && (
+                      <p className="text-xs text-red-500 font-medium flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={2} />
+                        {lang === "en" ? "Duplicate options — each answer must be unique." : "Options en double — chaque réponse doit être unique."}
+                      </p>
+                    )}
                     <button onClick={() => addOption(q.id)} className="flex items-center gap-1.5 text-xs font-bold text-navy hover:text-brand transition-colors mt-1">
                       <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
                       {lang === "en" ? "Add option" : "Ajouter une option"}
