@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import {
-  BookOpen, Users, ClipboardCheck, Award, UploadCloud, PencilLine, Megaphone, ArrowRight,
+  BookOpen, Users, ClipboardCheck, Award, UploadCloud, PencilLine, Megaphone, ArrowRight, CalendarCheck,
 } from "lucide-react";
 import { Badge, StatCard, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import GradientBlobs from "@/components/ui/GradientBlobs";
@@ -33,6 +33,7 @@ export default function LecturerDashboard() {
 
   const [stats, setStats] = useState<Stats>({ activeCourses: 0, totalStudents: 0, pendingSubmissions: 0, publishedResults: 0 });
   const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [liveSessionCount, setLiveSessionCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -71,6 +72,16 @@ export default function LecturerDashboard() {
             .is("score", null);
           pendingSubmissions = count ?? 0;
         }
+
+        const { data: openSessions } = await supabase
+          .from("attendance_sessions")
+          .select("id, closes_at")
+          .in("course_id", courseIds)
+          .eq("is_open", true);
+        const now = Date.now();
+        setLiveSessionCount((openSessions ?? []).filter(
+          (s: { closes_at: string | null }) => !s.closes_at || new Date(s.closes_at).getTime() > now
+        ).length);
       }
 
       setStats({
@@ -126,6 +137,25 @@ export default function LecturerDashboard() {
           </p>
         </div>
       </div>
+
+      {liveSessionCount > 0 && (
+        <Link
+          to="/lecturer/attendance"
+          className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-5 py-3.5 mb-6 hover:bg-green-100 transition-colors animate-fade-in-up group"
+        >
+          <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+          </span>
+          <CalendarCheck className="w-4 h-4 text-green-700 flex-shrink-0" strokeWidth={2} />
+          <p className="text-sm font-semibold text-green-800 flex-1">
+            {lang === "en"
+              ? `You have ${liveSessionCount} live attendance session${liveSessionCount > 1 ? "s" : ""} running — confirm students now.`
+              : `Vous avez ${liveSessionCount} session${liveSessionCount > 1 ? "s" : ""} de présence en direct — confirmez les étudiants maintenant.`}
+          </p>
+          <ArrowRight className="w-4 h-4 text-green-700 flex-shrink-0 group-hover:translate-x-0.5 transition-transform" strokeWidth={2.5} />
+        </Link>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 stagger-children">

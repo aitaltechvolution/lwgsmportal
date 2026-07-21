@@ -42,7 +42,7 @@ export default function StudentAttendance() {
     const courseIds = (enrolled ?? []).map((e: { course_id: string }) => e.course_id);
     if (courseIds.length === 0) { setLoading(false); return; }
 
-    // Get open sessions for those courses
+    // Get sessions (open and past) for those courses
     const { data: sessionData } = await supabase
       .from("attendance_sessions")
       .select("*, courses(title, title_fr, code)")
@@ -97,8 +97,9 @@ export default function StudentAttendance() {
     { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }
   );
 
-  const openSessions = sessions.filter(s => s.is_open);
-  const pastSessions = sessions.filter(s => !s.is_open);
+  const isLive = (s: Session) => s.is_open && (!s.closes_at || new Date(s.closes_at).getTime() > Date.now());
+  const openSessions = sessions.filter(isLive);
+  const pastSessions = sessions.filter(s => !isLive(s));
 
   return (
     <StudentLayout breadcrumbs={[{ label: lang === "en" ? "Attendance" : "Présence" }]}>

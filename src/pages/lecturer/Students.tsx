@@ -23,6 +23,7 @@ interface StudentRow {
   course_title_fr: string | null;
   status: string;
   progress_pct: number | null;
+  attendance_pct: number | null;
 }
 
 export default function LecturerStudents() {
@@ -57,6 +58,15 @@ export default function LecturerStudents() {
         .in("course_id", courseIds)
         .eq("status", "active");
 
+      const { data: attData } = await supabase
+        .from("attendance_student_summary")
+        .select("student_id, course_id, attendance_pct")
+        .in("course_id", courseIds);
+      const attMap = new Map(
+        ((attData ?? []) as { student_id: string; course_id: string; attendance_pct: number | null }[])
+          .map(a => [`${a.student_id}-${a.course_id}`, a.attendance_pct])
+      );
+
       const rows: StudentRow[] = ((enrData ?? []) as unknown as {
         student_id: string; course_id: string; status: string; progress_pct: number | null;
         profiles?: { full_name: string; email: string; avatar_url?: string | null } | null;
@@ -72,6 +82,7 @@ export default function LecturerStudents() {
           course_title_fr: course?.title_fr ?? null,
           status: e.status,
           progress_pct: e.progress_pct,
+          attendance_pct: attMap.get(`${e.student_id}-${e.course_id}`) ?? null,
         };
       });
 
@@ -143,6 +154,7 @@ export default function LecturerStudents() {
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Student" : "Étudiant"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Course" : "Cours"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Progress" : "Progression"}</th>
+                  <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Attendance" : "Présence"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Status" : "Statut"}</th>
                 </tr>
               </thead>
@@ -166,6 +178,11 @@ export default function LecturerStudents() {
                       <td className="px-5 py-3.5 text-ink">{cTitle}</td>
                       <td className="px-5 py-3.5 text-center">
                         <span className={`font-bold ${progress >= 80 ? "text-green-600" : progress >= 40 ? "text-yellow-600" : "text-navy"}`}>{progress}%</span>
+                      </td>
+                      <td className="px-5 py-3.5 text-center">
+                        {s.attendance_pct === null
+                          ? <span className="text-xs text-gray-400">—</span>
+                          : <span className={`font-bold ${s.attendance_pct >= 75 ? "text-green-600" : s.attendance_pct >= 50 ? "text-yellow-600" : "text-red-500"}`}>{s.attendance_pct}%</span>}
                       </td>
                       <td className="px-5 py-3.5 text-center">
                         <Badge color={s.status === "completed" ? "green" : "blue"}>

@@ -79,11 +79,17 @@ export default function AdminSettings() {
   const [notifySms, setNotifySms] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
 
+  // Attendance policy
+  const [requireAttendance, setRequireAttendance] = useState(false);
+  const [minAttendancePct, setMinAttendancePct] = useState("75");
+  const [attendancePolicySaving, setAttendancePolicySaving] = useState(false);
+
   useEffect(() => {
     supabase.from("site_settings").select("key, value").in("key", [
       "paystack_public_key", "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral", "fee_certificate",
       "school_name_en", "school_name_fr", "school_tagline_en", "school_tagline_fr",
       "notify_new_enrollment", "notify_payment_received", "notify_certificate_issued", "notify_sms_enabled",
+      "require_attendance_for_certificate", "min_attendance_pct",
     ]).then(({ data }) => {
       const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
       setPaystackKey(map.get("paystack_public_key") ?? "");
@@ -99,6 +105,8 @@ export default function AdminSettings() {
       setNotifyPayment((map.get("notify_payment_received") ?? "true") === "true");
       setNotifyCertificate((map.get("notify_certificate_issued") ?? "true") === "true");
       setNotifySms((map.get("notify_sms_enabled") ?? "false") === "true");
+      setRequireAttendance((map.get("require_attendance_for_certificate") ?? "false") === "true");
+      setMinAttendancePct(map.get("min_attendance_pct") ?? "75");
     });
     loadBankAccounts();
   }, []);
@@ -194,6 +202,31 @@ export default function AdminSettings() {
       showMsg("err", lang === "en" ? "Failed to save notification settings." : "Échec de l'enregistrement.");
     } finally {
       setNotifSaving(false);
+    }
+  };
+
+  const onSaveAttendancePolicy = async (next: { requireAttendance?: boolean; minAttendancePct?: string }) => {
+    const pct = next.minAttendancePct ?? minAttendancePct;
+    const numeric = Number(pct);
+    if (Number.isNaN(numeric) || numeric < 0 || numeric > 100) {
+      showMsg("err", lang === "en" ? "Enter a valid percentage (0–100)." : "Entrez un pourcentage valide (0–100).");
+      return;
+    }
+    setAttendancePolicySaving(true);
+    try {
+      const values = {
+        require_attendance_for_certificate: String(next.requireAttendance ?? requireAttendance),
+        min_attendance_pct: pct,
+      };
+      const { error } = await supabase.from("site_settings").upsert(
+        Object.entries(values).map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }))
+      );
+      if (error) throw error;
+      showMsg("ok", lang === "en" ? "Attendance policy saved!" : "Politique de présence enregistrée !");
+    } catch {
+      showMsg("err", lang === "en" ? "Failed to save attendance policy." : "Échec de l'enregistrement.");
+    } finally {
+      setAttendancePolicySaving(false);
     }
   };
 
@@ -530,6 +563,50 @@ export default function AdminSettings() {
               ? "These toggles control whether notifications are sent; actual email/SMS delivery requires a configured provider."
               : "Ces options contrôlent l'envoi des notifications ; la livraison réelle nécessite un fournisseur configuré."}
           </p>
+        </div>
+
+        <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
+          <h3 className="font-bold text-ink mb-1 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-navy" strokeWidth={2} />
+            {lang === "en" ? "Attendance Policy" : "Politique de Présence"}
+          </h3>
+          <p className="text-xs text-slate mb-4">
+            {lang === "en"
+              ? "Attendance is tracked automatically from lecturer sessions. Optionally require a minimum attendance rate before a student can receive their certificate."
+              : "La présence est suivie automatiquement à partir des sessions des enseignants. Exigez éventuellement un taux minimum avant qu'un étudiant puisse recevoir son certificat."}
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+              <div>
+                <p className="text-sm font-semibold text-ink">{lang === "en" ? "Require Attendance for Certificate" : "Exiger la Présence pour le Certificat"}</p>
+                <p className="text-xs text-gray-400">
+                  {lang === "en" ? "A student must meet the minimum attendance rate below to be certificate-eligible" : "Un étudiant doit atteindre le taux minimum ci-dessous pour être éligible au certificat"}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={requireAttendance}
+                onChange={(v) => { setRequireAttendance(v); onSaveAttendancePolicy({ requireAttendance: v }); }}
+                disabled={attendancePolicySaving}
+              />
+            </div>
+            <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+              <div>
+                <p className="text-sm font-semibold text-ink">{lang === "en" ? "Minimum Attendance Rate" : "Taux de Présence Minimum"}</p>
+                <p className="text-xs text-gray-400">
+                  {lang === "en" ? "Percentage of live sessions a student must be marked present for" : "Pourcentage de sessions en direct où l'étudiant doit être marqué présent"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number" min={0} max={100} value={minAttendancePct}
+                  onChange={e => setMinAttendancePct(e.target.value)}
+                  onBlur={() => onSaveAttendancePolicy({})}
+                  className="input w-20 text-center" disabled={attendancePolicySaving}
+                />
+                <span className="text-sm text-slate font-semibold">%</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>

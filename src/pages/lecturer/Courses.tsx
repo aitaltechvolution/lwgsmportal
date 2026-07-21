@@ -4,7 +4,7 @@ import LecturerLayout from "@/components/LecturerLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Plus, BookOpen, Users, Settings, Loader2, Pencil, Lock } from "lucide-react";
+import { Plus, BookOpen, Users, Settings, Loader2, Pencil, Lock, CalendarCheck } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard, Modal, ToggleSwitch } from "@/components/ui/primitives";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useToast } from "@/contexts/ToastContext";
@@ -258,6 +258,13 @@ export default function LecturerCourses() {
                           <Pencil className="w-4 h-4" strokeWidth={2} />
                           {lang === "en" ? "Edit" : "Modifier"}
                         </button>
+                        <Link
+                          to={`/lecturer/attendance?course=${c.id}`}
+                          className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors"
+                        >
+                          <CalendarCheck className="w-4 h-4" strokeWidth={2} />
+                          {lang === "en" ? "Attendance" : "Présence"}
+                        </Link>
                         <Link
                           to={`/lecturer/courses/${c.id}/materials`}
                           className="inline-flex items-center gap-1.5 text-sm font-bold text-navy hover:text-brand transition-colors"

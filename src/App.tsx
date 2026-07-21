@@ -36,6 +36,7 @@ import CourseAssessments from "@/pages/lecturer/CourseAssessments";
 import QuestionBuilder from "@/pages/lecturer/QuestionBuilder";
 import AssessmentSubmissions from "@/pages/lecturer/AssessmentSubmissions";
 import LecturerStudents from "@/pages/lecturer/Students";
+import LecturerAttendance from "@/pages/lecturer/Attendance";
 import Gradebook from "@/pages/lecturer/Gradebook";
 import LecturerAnnouncements from "@/pages/lecturer/Announcements";
 import LecturerResources from "@/pages/lecturer/Resources";
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="/lecturer/assessments/:id/questions" element={<ProtectedRoute roles={["lecturer"]}><QuestionBuilder /></ProtectedRoute>} />
         <Route path="/lecturer/assessments/:id/submissions" element={<ProtectedRoute roles={["lecturer"]}><AssessmentSubmissions /></ProtectedRoute>} />
         <Route path="/lecturer/students" element={<ProtectedRoute roles={["lecturer"]}><LecturerStudents /></ProtectedRoute>} />
+        <Route path="/lecturer/attendance" element={<ProtectedRoute roles={["lecturer"]}><LecturerAttendance /></ProtectedRoute>} />
         <Route path="/lecturer/gradebook" element={<ProtectedRoute roles={["lecturer"]}><Gradebook /></ProtectedRoute>} />
         <Route path="/lecturer/announcements" element={<ProtectedRoute roles={["lecturer"]}><LecturerAnnouncements /></ProtectedRoute>} />
         <Route path="/lecturer/resources" element={<ProtectedRoute roles={["lecturer"]}><LecturerResources /></ProtectedRoute>} />

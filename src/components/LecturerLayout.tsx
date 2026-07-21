@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
   LayoutGrid, BookOpen, PencilLine, Users, ClipboardCheck, Megaphone,
-  MessageSquare, FolderOpen, User,
+  MessageSquare, FolderOpen, User, CalendarCheck,
 } from "lucide-react";
 import PortalLayout, { PortalNavItem } from "@/components/PortalLayout";
 
@@ -40,6 +40,7 @@ export default function LecturerLayout({ children, title, breadcrumbs }: Props) 
     { to: "/lecturer/courses",       label: "My Courses",   fr: "Mes Cours",       icon: BookOpen },
     { to: "/lecturer/assessments",   label: "Assessments",  fr: "Évaluations",     icon: PencilLine,    badgeCount: pendingSubs },
     { to: "/lecturer/students",      label: "Students",     fr: "Étudiants",       icon: Users },
+    { to: "/lecturer/attendance",    label: "Attendance",   fr: "Présence",        icon: CalendarCheck },
     { to: "/lecturer/gradebook",     label: "Gradebook",    fr: "Cahier de Notes", icon: ClipboardCheck },
     { to: "/lecturer/announcements", label: "Announcements",fr: "Annonces",        icon: Megaphone },
     { to: "/lecturer/resources",     label: "Resources",    fr: "Ressources",      icon: FolderOpen },

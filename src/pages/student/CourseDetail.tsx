@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import {
   Search, BookOpen, FileText, Video, Paperclip, Lock, Eye,
   ClipboardList, GraduationCap, Clock, Award, Mail, FolderOpen, X,
-  ChevronRight, CheckCircle2, Download,
+  ChevronRight, CheckCircle2, Download, CalendarCheck,
 } from "lucide-react";
 import { Badge, ProgressBar, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
@@ -43,6 +43,13 @@ interface Grade {
 interface Enrollment {
   id: string; progress_pct: number | null; status: string;
 }
+interface AttendanceSummary {
+  total_sessions: number;
+  present_count: number;
+  rejected_count: number;
+  pending_count: number;
+  attendance_pct: number | null;
+}
 type TabKey = "overview" | "materials" | "assignments" | "grades";
 
 const MAT_META: Record<string, { icon: typeof FileText; bg: string; text: string }> = {
@@ -75,6 +82,7 @@ export default function CourseDetail() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [grades, setGrades]           = useState<Grade[]>([]);
   const [enrollment, setEnrollment]   = useState<Enrollment | null>(null);
+  const [attendance, setAttendance]   = useState<AttendanceSummary | null>(null);
   const [tab, setTab]                 = useState<TabKey>("overview");
   const [loading, setLoading]         = useState(true);
   const [hasPaidRegistration, setHasPaidRegistration] = useState<boolean | null>(null);
@@ -192,6 +200,16 @@ export default function CourseDetail() {
   }, [id, profile?.id, exchangeRate]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Attendance summary is fetched independently of the main load() — it's
+  // informational and shouldn't block or complicate the larger Promise.all.
+  useEffect(() => {
+    if (!id || !profile?.id) return;
+    supabase.from("attendance_student_summary")
+      .select("total_sessions, present_count, rejected_count, pending_count, attendance_pct")
+      .eq("course_id", id).eq("student_id", profile.id).maybeSingle()
+      .then(({ data }) => setAttendance((data as AttendanceSummary | null) ?? null));
+  }, [id, profile?.id]);
 
   // Start tracking time when material is opened
   const startTracking = useCallback((mat: Material) => {
@@ -444,6 +462,34 @@ export default function CourseDetail() {
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
           <div className="p-6 space-y-6 animate-fade-in">
+            {attendance && attendance.total_sessions > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-slate uppercase tracking-wider mb-3">{lang === "en" ? "Attendance" : "Présence"}</h3>
+                <div className="flex items-center gap-5 bg-gray-50 rounded-xl p-4 border border-gray-100 flex-wrap">
+                  <div className="flex-shrink-0 text-center">
+                    <div className={`text-2xl font-black ${
+                      (attendance.attendance_pct ?? 0) >= 75 ? "text-green-600" : (attendance.attendance_pct ?? 0) >= 50 ? "text-yellow-600" : "text-red-500"
+                    }`}>
+                      {attendance.attendance_pct ?? 0}%
+                    </div>
+                    <div className="text-[11px] text-slate font-medium">{lang === "en" ? "Attendance Rate" : "Taux de Présence"}</div>
+                  </div>
+                  <div className="flex-1 min-w-[180px] text-sm text-ink">
+                    <span className="font-semibold">{attendance.present_count}</span> {lang === "en" ? "of" : "sur"} <span className="font-semibold">{attendance.total_sessions}</span>{" "}
+                    {lang === "en" ? "session(s) attended" : "session(s) suivies"}
+                    {attendance.pending_count > 0 && (
+                      <span className="block text-xs text-amber-600 mt-0.5">
+                        {attendance.pending_count} {lang === "en" ? "pending lecturer confirmation" : "en attente de confirmation"}
+                      </span>
+                    )}
+                  </div>
+                  <Link to="/student/attendance" className="flex-shrink-0 inline-flex items-center gap-1 text-sm font-bold text-navy hover:text-brand transition-colors">
+                    <CalendarCheck className="w-4 h-4" strokeWidth={2} />
+                    {lang === "en" ? "View Sessions" : "Voir les Sessions"}
+                  </Link>
+                </div>
+              </div>
+            )}
             {(course.description || course.description_fr) && (
               <div>
                 <h3 className="text-xs font-bold text-slate uppercase tracking-wider mb-3">{lang === "en" ? "About This Course" : "À Propos"}</h3>

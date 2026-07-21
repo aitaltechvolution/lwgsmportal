@@ -20,6 +20,7 @@ interface EligibleRow {
   enrolled_courses: number;
   published_courses: number;
   pct_published: number;
+  attendance_pct: number | null;
   is_eligible: boolean;
   already_issued: boolean;
   profiles?: { full_name: string; email: string } | null;
@@ -203,7 +204,7 @@ export default function AdminCertificates() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50/60 border-b border-gray-100">
-                    {[lang === "en" ? "Student" : "Étudiant", lang === "en" ? "Program" : "Programme", lang === "en" ? "Courses" : "Cours", ""].map(h => (
+                    {[lang === "en" ? "Student" : "Étudiant", lang === "en" ? "Program" : "Programme", lang === "en" ? "Courses" : "Cours", lang === "en" ? "Attendance" : "Présence", ""].map(h => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -217,6 +218,11 @@ export default function AdminCertificates() {
                         <td className="px-5 py-3.5"><p className="font-semibold text-ink">{row.profiles?.full_name ?? "—"}</p><p className="text-xs text-gray-400">{row.profiles?.email}</p></td>
                         <td className="px-5 py-3.5 text-ink">{progTitle}</td>
                         <td className="px-5 py-3.5"><Badge color="green" icon={CheckCircle2}>{row.published_courses}/{row.total_courses} {lang === "en" ? "published" : "publiées"}</Badge></td>
+                        <td className="px-5 py-3.5">
+                          {row.attendance_pct === null
+                            ? <span className="text-xs text-gray-400">{lang === "en" ? "No sessions yet" : "Aucune session"}</span>
+                            : <Badge color={row.attendance_pct >= 75 ? "green" : row.attendance_pct >= 50 ? "orange" : "red"}>{row.attendance_pct}%</Badge>}
+                        </td>
                         <td className="px-5 py-3.5">
                           <button
                             onClick={() => onIssue(row)}

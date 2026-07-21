@@ -50,6 +50,22 @@ the public `avatars` storage bucket. See the top-level `README.md` for
 details and the going-live checklist (Edge Function deploy, Google OAuth,
 Paystack key, bank accounts, exchange rate).
 
+### Step 4b — Fixes + live attendance system
+
+```
+supabase/new/master_fixes.sql
+supabase/new/live_attendance_v2.sql
+```
+
+`master_fixes.sql` creates `attendance_sessions` / `attendance_logs` (the
+live, session-based attendance system used by the lecturer and student
+"Attendance" pages) plus a batch of other fixes. `live_attendance_v2.sql`
+**must run after it** and adds: onsite/lecturer-marked check-ins, tightened
+per-course RLS, the `attendance_student_summary` reporting view, and
+attendance-aware certificate eligibility (off by default — see
+`min_attendance_pct` / `require_attendance_for_certificate` in
+`site_settings`).
+
 ### Step 5 — Environment variables
 
 Copy `.env.example` to `.env` and fill in your Supabase project URL and anon key:
