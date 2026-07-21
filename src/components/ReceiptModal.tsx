@@ -141,11 +141,8 @@ export default function ReceiptModal({ open, onClose, payment, studentName, prog
             <table style={{ borderCollapse: "collapse" }}>
               <tbody>
                 <tr>
-                  <td style={{ verticalAlign: "middle", paddingRight: 8 }}>
-                    <StatusIcon className={`w-5 h-5 block ${status.color}`} strokeWidth={2} />
-                  </td>
                   <td style={{ verticalAlign: "middle" }}>
-                    <span className={`font-bold text-sm ${status.color}`} style={{ lineHeight: 1 }}>
+                    <span className={`font-bold text-lg ${status.color}`} style={{ lineHeight: 1 }}>
                       {lang === "en" ? status.en : status.fr}
                     </span>
                   </td>
