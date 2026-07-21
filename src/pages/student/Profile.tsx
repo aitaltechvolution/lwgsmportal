@@ -97,9 +97,16 @@ export default function StudentProfile() {
           <div>
             <div className="text-white font-black text-lg leading-tight">{profile?.full_name}</div>
             <div className="text-white/50 text-sm mt-0.5">{profile?.email}</div>
-            <span className="inline-block mt-2 text-xs font-bold bg-amber-400/15 text-amber-300 border border-amber-400/25 px-2.5 py-0.5 rounded-full capitalize">
-              {profile?.role}
-            </span>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="inline-block text-xs font-bold bg-amber-400/15 text-amber-300 border border-amber-400/25 px-2.5 py-0.5 rounded-full capitalize">
+                {profile?.role}
+              </span>
+              {profile?.matric_number && (
+                <span className="inline-block text-xs font-bold bg-white/10 text-white/85 border border-white/15 px-2.5 py-0.5 rounded-full font-mono">
+                  {lang === "en" ? "Matric No." : "N° Matricule"}: {profile.matric_number}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

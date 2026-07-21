@@ -155,6 +155,12 @@ export default function StudentPortal() {
               <span className="text-white/85 font-semibold">{enrolledProgram}</span>
             </p>
           )}
+          {profile?.matric_number && (
+            <p className="text-white/50 text-sm mt-0.5">
+              {lang === "en" ? "Matric No." : "N° Matricule"}{" "}
+              <span className="text-white/85 font-semibold font-mono">{profile.matric_number}</span>
+            </p>
+          )}
           <Link
             to="/student/courses"
             className="mt-5 inline-flex items-center gap-2 bg-brand hover:bg-brand-light text-white text-sm font-bold px-5 py-2.5 rounded-xl transition-all duration-200 shadow-glow hover:-translate-y-0.5"

@@ -185,7 +185,7 @@ export default function ProgramDetail() {
                 </div>
               </div>
             </div>
-            <Link to="/admissions" className="btn-primary w-full flex items-center justify-center gap-2">
+            <Link to={`/admissions?program=${id}`} className="btn-primary w-full flex items-center justify-center gap-2">
               {lang === "en" ? "Apply Now" : "Candidater"}
               <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
             </Link>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { Profile, Role } from "@/types";
@@ -35,6 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  // Tracks which user id `profile` currently reflects. Read as a ref (not
+  // state) so the onAuthStateChange listener below — created once on
+  // mount with an empty dependency array — always sees the latest value
+  // instead of a stale closure over the initial `profile`.
+  const loadedProfileUserId = useRef<string | null>(null);
 
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
@@ -44,13 +49,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single();
 
     if (error) {
+      // A valid auth session with no matching profiles row — the account
+      // was deleted, the row never got created, or RLS is now denying
+      // it. Previously this just left `profile` as null while `session`
+      // stayed set, and ProtectedRoute rendered account/profile UI
+      // anyway. Sign the session out so the app consistently treats this
+      // as "not logged in" rather than a half-authenticated state.
       console.error("loadProfile error:", error.message);
       setProfile(null);
+      loadedProfileUserId.current = null;
+      await supabase.auth.signOut();
       return;
     }
 
     const p = (data as Profile) ?? null;
     setProfile(p);
+    loadedProfileUserId.current = p?.id ?? null;
     if (p?.language_pref && p.language_pref !== i18n.language) {
       i18n.changeLanguage(p.language_pref);
       localStorage.setItem("lwgsm_lang", p.language_pref);
@@ -70,10 +84,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       if (s?.user) {
-        loadProfile(s.user.id);
+        // Only re-show the loading state for a session whose profile we
+        // haven't resolved yet (e.g. right after sign-in) — not on every
+        // silent token refresh, which would otherwise flash a spinner
+        // over an already-loaded portal. Keeping `loading` true here
+        // matters: without it, ProtectedRoute could briefly see a real
+        // session with profile still null (fetch not finished yet) and
+        // incorrectly treat that as a missing account.
+        const isNewSession = loadedProfileUserId.current !== s.user.id;
+        if (isNewSession) setLoading(true);
+        loadProfile(s.user.id).finally(() => { if (isNewSession) setLoading(false); });
         if (event === "SIGNED_IN") logUsageEvent(s.user.id, "login");
       } else {
         setProfile(null);
+        loadedProfileUserId.current = null;
       }
     });
     return () => sub.subscription.unsubscribe();

@@ -26,10 +26,11 @@ export default function Admissions() {
 
   const [searchParams] = useSearchParams();
   const prefilledCourseId = searchParams.get("course_id") ?? "";
+  const prefilledProgramId = searchParams.get("program") ?? "";
 
   const [programs, setPrograms] = useState<ProgramOpt[]>([]);
   const [programSearch, setProgramSearch] = useState("");
-  const [programId, setProgramId] = useState("");
+  const [programId, setProgramId] = useState(prefilledProgramId);
   const [programCourses, setProgramCourses] = useState<CourseOpt[]>([]);
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", phone: "",

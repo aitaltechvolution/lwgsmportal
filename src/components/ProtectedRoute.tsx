@@ -12,7 +12,12 @@ export default function ProtectedRoute({ children, roles }: { children: ReactNod
     </div>
   );
   if (!session) return <Navigate to="/login" replace />;
-  if (roles && profile && !roles.includes(profile.role)) {
+  // A session can exist with no matching profile — e.g. the account was
+  // deleted, or the profiles row never got created. Never fall through to
+  // rendering account/profile UI in that case; treat it the same as not
+  // being logged in at all.
+  if (!profile) return <Navigate to="/login" replace />;
+  if (roles && !roles.includes(profile.role)) {
     const target = profile.role === "admin" ? "/admin" : profile.role === "lecturer" ? "/lecturer" : "/student";
     return <Navigate to={target} replace />;
   }

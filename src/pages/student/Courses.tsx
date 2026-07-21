@@ -92,11 +92,16 @@ export default function StudentCourses() {
           </h2>
           <p className="text-sm text-slate mt-0.5">
             {loading ? "…" : `${enrollments.length} ${lang === "en" ? "course(s) enrolled" : "cours inscrits"}`}
+            {profile?.matric_number && (
+              <span className="ml-2 font-mono text-navy font-semibold">
+                · {lang === "en" ? "Matric No." : "N° Matricule"} {profile.matric_number}
+              </span>
+            )}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/admissions" className="inline-flex items-center gap-1.5 text-sm font-bold text-navy border border-navy/15 hover:bg-navy hover:text-white rounded-xl px-4 py-2.5 transition-all whitespace-nowrap">
+          <Link to="/admissions" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-bold text-navy border border-navy/15 hover:bg-navy hover:text-white rounded-xl px-4 py-2.5 transition-all whitespace-nowrap">
             <GraduationCap className="w-4 h-4" strokeWidth={2} />
             {lang === "en" ? "Apply for Another Course" : "Postuler à un Autre Cours"}
           </Link>
