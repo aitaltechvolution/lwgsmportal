@@ -7,7 +7,7 @@ interface SecureFileViewerProps {
   onClose: () => void;
   title: string;
   storedUrl: string;
-  kind: "note" | "video" | "file";
+  kind: "note" | "video" | "file" | "link";
   bucket?: string;
   showCloseButton?: boolean;
   onVideoPlay?: () => void;

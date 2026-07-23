@@ -66,6 +66,19 @@ attendance-aware certificate eligibility (off by default — see
 `min_attendance_pct` / `require_attendance_for_certificate` in
 `site_settings`).
 
+### Step 4c — Link materials + per-course video toggle
+
+```
+supabase/new/materials_link_type_and_video_toggle.sql
+```
+
+Adds `'link'` to the `material_type` enum (materials can now be File,
+Video, or Link — typed "note" text is no longer offered for new
+materials, though old note materials keep working), adds
+`courses.allow_videos` (default `true`) so an admin can disable video
+materials for a specific course, and adds a trigger that enforces that
+setting server-side.
+
 ### Step 5 — Environment variables
 
 Copy `.env.example` to `.env` and fill in your Supabase project URL and anon key:

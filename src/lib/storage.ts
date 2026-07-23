@@ -41,3 +41,17 @@ export async function resolveSecureUrl(bucket: string, storedUrl: string): Promi
   if (!path) return null;
   return getSignedViewUrl(bucket, path);
 }
+
+/**
+ * Materials can now store either a private-storage path (uploaded file) or
+ * a real external URL (a "Link" material, or a video/file added via a
+ * pasted link instead of an upload). Storage paths are always bare
+ * "{course_id}/{filename}" strings and never start with http(s) — so this
+ * check reliably tells the two apart without needing a separate DB column.
+ * External links must be opened directly (window.open / <a>) and must
+ * NEVER be passed to resolveSecureUrl, which only understands storage
+ * paths and will fail to resolve a real external URL.
+ */
+export function isExternalUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}

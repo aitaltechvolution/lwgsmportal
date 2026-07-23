@@ -37,26 +37,40 @@ export default function Admissions() {
     course_id: prefilledCourseId,
     country: "", message: "",
   });
-  const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err">("idle");
+  const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err" | "exists">("idle");
 
   useEffect(() => {
     supabase.from("programs").select("id,title,title_fr,type").order("type").order("title")
       .then(({ data }) => setPrograms((data ?? []) as ProgramOpt[]));
   }, []);
 
-  // When a program is chosen, resolve which course(s) sit under it via
-  // course_programs; auto-select if there's exactly one.
+  // When a program is chosen, resolve every course that sits under it —
+  // from BOTH its primary `courses.program_id` link AND any additional
+  // links in the `course_programs` join table (a course can belong to
+  // more than one program). Previously this only checked course_programs,
+  // silently missing courses whose only link was the primary column.
   useEffect(() => {
     if (!programId) { setProgramCourses([]); return; }
     (async () => {
-      const { data: links } = await supabase.from("course_programs").select("course_id").eq("program_id", programId);
-      const courseIds = (links ?? []).map((l: { course_id: string }) => l.course_id);
-      if (courseIds.length === 0) { setProgramCourses([]); return; }
+      const [{ data: primaryCourses }, { data: links }] = await Promise.all([
+        supabase.from("courses").select("id").eq("program_id", programId).eq("is_published", true),
+        supabase.from("course_programs").select("course_id").eq("program_id", programId),
+      ]);
+      const courseIds = Array.from(new Set([
+        ...(primaryCourses ?? []).map((c: { id: string }) => c.id),
+        ...(links ?? []).map((l: { course_id: string }) => l.course_id),
+      ]));
+      if (courseIds.length === 0) { setProgramCourses([]); setForm(f => ({ ...f, course_id: "" })); return; }
       const { data: courses } = await supabase.from("courses").select("id,title,title_fr,code,program_id")
         .in("id", courseIds).eq("is_published", true).order("title");
       const list = (courses ?? []) as CourseOpt[];
       setProgramCourses(list);
-      setForm(f => ({ ...f, course_id: list.length === 1 ? list[0].id : "" }));
+      // A student applies to the *programme*, not an individual course —
+      // they'll be enrolled in every course under it once approved (see
+      // process-application-decision). There's nothing for them to
+      // choose here; course_id just carries the first resolved course
+      // along for the schema/legacy reference.
+      setForm(f => ({ ...f, course_id: list.length > 0 ? list[0].id : "" }));
     })();
   }, [programId]);
 
@@ -70,12 +84,28 @@ export default function Admissions() {
     return p.title.toLowerCase().includes(q) || (p.title_fr ?? "").toLowerCase().includes(q);
   });
   const selectedProgram = programs.find(p => p.id === programId);
-  const selectedCourse = programCourses.find(c => c.id === form.course_id);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.course_id) return;
     setStatus("sending");
+
+    // Block up front rather than letting this reach approval — previously
+    // an unauthenticated visitor could submit using an email that already
+    // belongs to an existing account, and it would only fail much later
+    // when an admin tried to approve it, with a confusing raw Auth error.
+    if (!isLoggedIn) {
+      const { data: alreadyExists, error: checkErr } = await supabase.rpc("email_already_registered", { p_email: form.email.trim() });
+      if (checkErr) {
+        setStatus("err");
+        showToast("error", lang === "en" ? "Submission failed. Please try again." : "Échec. Veuillez réessayer.");
+        return;
+      }
+      if (alreadyExists) {
+        setStatus("exists");
+        return;
+      }
+    }
 
     const payload = isLoggedIn
       ? {
@@ -192,10 +222,17 @@ export default function Admissions() {
                   ? "We've received your application. Our admissions team will review it prayerfully and contact you."
                   : "Nous avons bien reçu votre candidature. Notre équipe des admissions va l'examiner dans la prière et prendra contact avec vous."}
               </p>
-              {selectedCourse && (
+              {selectedProgram && (
                 <p className="text-green-700 font-semibold text-sm mb-5">
-                  📚 {lang === "en" ? "Applied for:" : "Cours choisi :"}{" "}
-                  {(lang === "fr" && selectedCourse.title_fr) ? selectedCourse.title_fr : selectedCourse.title}
+                  📚 {lang === "en" ? "Applied for:" : "Programme choisi :"}{" "}
+                  {(lang === "fr" && selectedProgram.title_fr) ? selectedProgram.title_fr : selectedProgram.title}
+                  {programCourses.length > 1 && (
+                    <span className="block font-normal text-green-600 text-xs mt-1">
+                      {lang === "en"
+                        ? `You'll be enrolled in all ${programCourses.length} courses under this programme once approved.`
+                        : `Vous serez inscrit(e) aux ${programCourses.length} cours de ce programme une fois approuvé.`}
+                    </span>
+                  )}
                 </p>
               )}
               <Link to={isLoggedIn ? "/student" : "/"} className="inline-flex items-center gap-1.5 text-navy text-sm hover:underline font-semibold">
@@ -272,19 +309,31 @@ export default function Admissions() {
                   </div>
                 )}
 
-                {/* If the chosen programme has more than one course, ask which one */}
+                {/* The applicant applies to the programme as a whole — once
+                    approved they're enrolled in every course under it (see
+                    process-application-decision), so there's nothing to
+                    choose here. Just show what that involves. */}
                 {programId && programCourses.length > 1 && (
-                  <div className="mt-3">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      {lang === "en" ? "Which course under this programme?" : "Quel cours dans ce programme ?"} *
-                    </label>
-                    <select required value={form.course_id} onChange={e => setForm(f => ({ ...f, course_id: e.target.value }))} className={inputCls}>
-                      <option value="">{lang === "en" ? "Select a course…" : "Choisir un cours…"}</option>
+                  <div className="mt-3 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+                    <p className="text-xs font-bold text-slate mb-1.5">
+                      {lang === "en"
+                        ? `This programme includes ${programCourses.length} courses — you'll be enrolled in all of them once approved:`
+                        : `Ce programme comprend ${programCourses.length} cours — vous serez inscrit(e) à tous une fois approuvé(e) :`}
+                    </p>
+                    <ul className="text-sm text-ink space-y-0.5 list-disc list-inside">
                       {programCourses.map(c => (
-                        <option key={c.id} value={c.id}>{(lang === "fr" && c.title_fr) ? c.title_fr : c.title}{c.code ? ` (${c.code})` : ""}</option>
+                        <li key={c.id}>{(lang === "fr" && c.title_fr) ? c.title_fr : c.title}{c.code ? ` (${c.code})` : ""}</li>
                       ))}
-                    </select>
+                    </ul>
                   </div>
+                )}
+                {programId && programCourses.length === 1 && (
+                  <p className="text-xs text-slate mt-2">
+                    {lang === "en" ? "Course:" : "Cours :"}{" "}
+                    <span className="font-semibold text-ink">
+                      {(lang === "fr" && programCourses[0].title_fr) ? programCourses[0].title_fr : programCourses[0].title}
+                    </span>
+                  </p>
                 )}
                 {programId && programCourses.length === 0 && (
                   <p className="text-xs text-red-500 mt-2">
@@ -331,6 +380,19 @@ export default function Admissions() {
                   className={`${inputCls} resize-none`} />
               </div>
               </>
+              )}
+
+              {status === "exists" && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex flex-col gap-2">
+                  <p>
+                    {lang === "en"
+                      ? "An account already exists with this email. Please log in before applying so we can attach this application to your existing account."
+                      : "Un compte existe déjà avec cet e-mail. Veuillez vous connecter avant de postuler afin que nous puissions rattacher cette candidature à votre compte existant."}
+                  </p>
+                  <Link to="/login" className="self-start font-bold underline hover:no-underline">
+                    {lang === "en" ? "Log In" : "Se Connecter"}
+                  </Link>
+                </div>
               )}
 
               {status === "err" && (

@@ -7,12 +7,13 @@ import { useTranslation } from "react-i18next";
 import {
   Search, BookOpen, FileText, Video, Paperclip, Lock, Eye,
   ClipboardList, GraduationCap, Clock, Award, Mail, FolderOpen, X,
-  ChevronRight, CheckCircle2, Download, CalendarCheck,
+  ChevronRight, CheckCircle2, Download, CalendarCheck, Link2,
 } from "lucide-react";
 import { Badge, ProgressBar, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import SecureFileViewer from "@/components/SecureFileViewer";
 import { logUsageEvent } from "@/lib/usageEvents";
+import { isExternalUrl, resolveSecureUrl } from "@/lib/storage";
 
 /* ── Types ── */
 interface Course {
@@ -23,7 +24,7 @@ interface Course {
   profiles?: { full_name: string; title: string | null; email: string } | null;
 }
 interface Material {
-  id: string; title_en: string; title_fr: string | null; type: "note" | "video" | "file";
+  id: string; title_en: string; title_fr: string | null; type: "note" | "video" | "file" | "link";
   url: string | null; content_en: string | null; content_fr: string | null;
   is_premium: boolean; price: number | null; sort_order: number | null;
 }
@@ -52,9 +53,10 @@ interface AttendanceSummary {
 type TabKey = "overview" | "materials" | "assignments" | "grades";
 
 const MAT_META: Record<string, { icon: typeof FileText; bg: string; text: string }> = {
-  note:  { icon: FileText,  bg: "bg-blue-50",  text: "text-blue-600" },
-  video: { icon: Video,     bg: "bg-red-50",   text: "text-red-600"  },
-  file:  { icon: Paperclip, bg: "bg-gray-100", text: "text-gray-600" },
+  note:  { icon: FileText,  bg: "bg-blue-50",   text: "text-blue-600"   },
+  video: { icon: Video,     bg: "bg-red-50",    text: "text-red-600"    },
+  file:  { icon: Paperclip, bg: "bg-gray-100",  text: "text-gray-600"   },
+  link:  { icon: Link2,     bg: "bg-purple-50", text: "text-purple-600" },
 };
 
 function daysUntil(iso: string) {
@@ -243,10 +245,22 @@ export default function CourseDetail() {
     logUsageEvent(profile.id, "material_view", { courseId: id, materialId: mat.id });
   }, [profile?.id, id, matProgress, refreshProgress]);
 
+  // Clicking a material — whether it's a stored file/video, a legacy typed
+  // note, or an external link — always marks it done immediately, and
+  // external links (type "link", or a video/file added via a pasted URL)
+  // open directly in a new tab. Storage-backed files still go through the
+  // signed-URL viewer; resolveSecureUrl can't resolve a real external URL
+  // (it only understands storage paths), so those must never be routed
+  // through it.
   const openMaterial = (mat: Material) => {
     markViewed(mat);
-    if (mat.url) setViewingMat(mat);
-    else setReadingMat(mat);
+    if (mat.url && isExternalUrl(mat.url)) {
+      window.open(mat.url, "_blank", "noopener,noreferrer");
+    } else if (mat.url) {
+      setViewingMat(mat);
+    } else {
+      setReadingMat(mat);
+    }
   };
 
   // Called by SecureFileViewer when a video starts playing — already
@@ -260,9 +274,18 @@ export default function CourseDetail() {
   };
 
   // Download counts as done immediately too — clicking Download doesn't
-  // require the material to have been opened/viewed first.
-  const onDownload = (mat: Material) => {
+  // require the material to have been opened/viewed first. For a stored
+  // file this fetches a fresh signed URL rather than using the raw stored
+  // path as an href (which 404s, since that path isn't a real address).
+  const onDownload = async (mat: Material) => {
     markViewed(mat);
+    if (!mat.url) return;
+    if (isExternalUrl(mat.url)) { window.open(mat.url, "_blank", "noopener,noreferrer"); return; }
+    const signedUrl = await resolveSecureUrl("course-materials", mat.url);
+    if (!signedUrl) return;
+    const a = document.createElement("a");
+    a.href = signedUrl; a.rel = "noopener noreferrer"; a.target = "_blank";
+    document.body.appendChild(a); a.click(); a.remove();
   };
 
   if (loading) {
@@ -524,17 +547,17 @@ export default function CourseDetail() {
                               onClick={() => openMaterial(mat)}
                               className="flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all">
                               <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
-                              {lang === "en" ? "View" : "Consulter"}
+                              {mat.type === "link" ? (lang === "en" ? "Open" : "Ouvrir") : (lang === "en" ? "View" : "Consulter")}
                             </button>
-                            {/* Paid + unlocked: students can freely download once purchased */}
-                            {mat.url && (
-                              <a
-                                href={mat.url} download target="_blank" rel="noopener noreferrer"
+                            {/* Paid + unlocked: students can freely download once purchased.
+                                Link materials have nothing to download — they're just a link. */}
+                            {mat.url && mat.type !== "link" && (
+                              <button
                                 onClick={() => onDownload(mat)}
                                 className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors">
                                 <Download className="w-3.5 h-3.5" strokeWidth={2.5} />
                                 {lang === "en" ? "Download" : "Télécharger"}
-                              </a>
+                              </button>
                             )}
                           </div>
                         ) : (
@@ -543,17 +566,17 @@ export default function CourseDetail() {
                               onClick={() => openMaterial(mat)}
                               className="flex items-center gap-1.5 text-xs font-bold text-navy bg-navy/5 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-all">
                               <Eye className="w-3.5 h-3.5" strokeWidth={2.5} />
-                              {mat.url ? (lang === "en" ? "View" : "Consulter") : (lang === "en" ? "Read" : "Lire")}
+                              {mat.type === "link" ? (lang === "en" ? "Open" : "Ouvrir") : mat.url ? (lang === "en" ? "View" : "Consulter") : (lang === "en" ? "Read" : "Lire")}
                             </button>
-                            {/* Free material: students can freely download */}
-                            {mat.url && (
-                              <a
-                                href={mat.url} download target="_blank" rel="noopener noreferrer"
+                            {/* Free material: students can freely download.
+                                Link materials have nothing to download — they're just a link. */}
+                            {mat.url && mat.type !== "link" && (
+                              <button
                                 onClick={() => onDownload(mat)}
                                 className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg transition-colors">
                                 <Download className="w-3.5 h-3.5" strokeWidth={2.5} />
                                 {lang === "en" ? "Download" : "Télécharger"}
-                              </a>
+                              </button>
                             )}
                           </div>
                         )}
@@ -719,7 +742,7 @@ export default function CourseDetail() {
       </div>
 
       {/* Material viewer */}
-      {viewingMat && viewingMat.url && (
+      {viewingMat && viewingMat.url && !isExternalUrl(viewingMat.url) && (
         <SecureFileViewer open={!!viewingMat} onClose={() => closeMaterial()}
           title={(lang === "fr" && viewingMat.title_fr) ? viewingMat.title_fr : viewingMat.title_en}
           storedUrl={viewingMat.url} kind={viewingMat.type}

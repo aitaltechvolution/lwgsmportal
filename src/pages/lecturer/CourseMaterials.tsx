@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import {
   FileText, Video, Paperclip, Lock, Trash2, Pencil, UploadCloud,
-  Loader2, Plus, X, Eye, PencilLine, AlignLeft, GripVertical,
+  Loader2, Plus, X, Eye, PencilLine, AlignLeft, GripVertical, Link2, AlertTriangle,
 } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow, ToggleSwitch } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
@@ -14,12 +14,14 @@ import SecureFileViewer from "@/components/SecureFileViewer";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useToast } from "@/contexts/ToastContext";
 import { uploadWithProgress } from "@/lib/uploadWithProgress";
+import { isExternalUrl } from "@/lib/storage";
 
 interface Course {
   id: string;
   title: string;
   title_fr: string | null;
   code: string | null;
+  allow_videos: boolean;
 }
 
 interface Material {
@@ -27,7 +29,7 @@ interface Material {
   course_id: string;
   title_en: string;
   title_fr: string | null;
-  type: "note" | "video" | "file";
+  type: "note" | "video" | "file" | "link";
   url: string | null;
   content_en: string | null;
   content_fr: string | null;
@@ -37,10 +39,14 @@ interface Material {
   created_at: string;
 }
 
+// "note" (typed text) is kept here only so any pre-existing note
+// materials still render correctly in the list — it's no longer offered
+// as a choice when adding/editing a material (see the Type selector below).
 const TYPE_META: Record<string, { icon: typeof FileText; bg: string; text: string; en: string; fr: string }> = {
-  note:  { icon: FileText,  bg: "bg-blue-50",  text: "text-blue-600", en: "Note",   fr: "Note" },
-  video: { icon: Video,     bg: "bg-red-50",   text: "text-red-600",  en: "Video",  fr: "Vidéo" },
-  file:  { icon: Paperclip, bg: "bg-gray-100", text: "text-gray-600", en: "File",   fr: "Fichier" },
+  note:  { icon: FileText,  bg: "bg-blue-50",   text: "text-blue-600",   en: "Note",  fr: "Note"  },
+  video: { icon: Video,     bg: "bg-red-50",    text: "text-red-600",    en: "Video", fr: "Vidéo" },
+  file:  { icon: Paperclip, bg: "bg-gray-100",  text: "text-gray-600",   en: "File",  fr: "Fichier" },
+  link:  { icon: Link2,     bg: "bg-purple-50", text: "text-purple-600", en: "Link",  fr: "Lien"  },
 };
 
 // Allowed types per material type
@@ -65,7 +71,21 @@ const ALLOWED_BY_TYPE: Record<string, { mimes: string[]; label: string; accept: 
 const ALLOWED_TYPES = ["application/pdf","image/png","image/jpeg","image/webp","video/mp4","video/webm","video/quicktime"];
 const ALLOWED_LABEL = "PDF, Image, or Video";
 
-type SourceMode = "upload" | "type";
+// "type" (free-text typed content) has been replaced with "link" (a pasted
+// external URL) — see the "links for videos" request: File and Video
+// materials can now either be uploaded or point at an external link (e.g.
+// a YouTube URL for a video), and "Link" is its own material type for a
+// plain external resource link.
+type SourceMode = "upload" | "link";
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export default function CourseMaterials() {
   const { id } = useParams<{ id: string }>();
@@ -88,11 +108,10 @@ export default function CourseMaterials() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [titleEn, setTitleEn] = useState("");
   const [titleFr, setTitleFr] = useState("");
-  const [type, setType] = useState<"note" | "video" | "file">("note");
+  const [type, setType] = useState<"video" | "file" | "link">("file");
   const [sourceMode, setSourceMode] = useState<SourceMode>("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [contentEn, setContentEn] = useState("");
-  const [contentFr, setContentFr] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [isPremium, setIsPremium] = useState(false);
   const [price, setPrice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -103,26 +122,40 @@ export default function CourseMaterials() {
     if (!id) return;
     setLoading(true);
     const [cRes, mRes] = await Promise.all([
-      supabase.from("courses").select("id, title, title_fr, code").eq("id", id).maybeSingle(),
+      supabase.from("courses").select("id, title, title_fr, code, allow_videos").eq("id", id).maybeSingle(),
       supabase.from("course_materials").select("*").eq("course_id", id).order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
     ]);
-    setCourse(cRes.data as Course | null);
+    const loadedCourse = cRes.data as Course | null;
+    setCourse(loadedCourse);
     setMaterials((mRes.data ?? []) as Material[]);
+    // If this course has videos disabled and the form is still sitting on
+    // "video" (e.g. from a previous course visited in the same session),
+    // fall back to "file" so the lecturer can't submit a disallowed type.
+    if (loadedCourse && !loadedCourse.allow_videos) {
+      setType(prev => (prev === "video" ? "file" : prev));
+    }
     setLoading(false);
   };
 
   useEffect(() => { load(); }, [id]);
 
   const resetForm = () => {
-    setEditingId(null); setTitleEn(""); setTitleFr(""); setType("note"); setSourceMode("upload");
-    setFile(null); setContentEn(""); setContentFr(""); setIsPremium(false); setPrice(""); setError(null);
+    setEditingId(null); setTitleEn(""); setTitleFr(""); setType("file"); setSourceMode("upload");
+    setFile(null); setLinkUrl(""); setIsPremium(false); setPrice(""); setError(null);
   };
 
   const startEdit = (m: Material) => {
     setEditingId(m.id);
-    setTitleEn(m.title_en); setTitleFr(m.title_fr ?? ""); setType(m.type);
-    setSourceMode(m.url ? "upload" : "type"); setFile(null);
-    setContentEn(m.content_en ?? ""); setContentFr(m.content_fr ?? "");
+    setTitleEn(m.title_en); setTitleFr(m.title_fr ?? "");
+    // Legacy "note" materials are no longer a selectable type — fall back
+    // to "file" so the type selector still shows a valid, highlighted option.
+    setType(m.type === "note" ? "file" : m.type);
+    if (m.url && isExternalUrl(m.url)) {
+      setSourceMode("link"); setLinkUrl(m.url);
+    } else {
+      setSourceMode(m.url ? "upload" : "link"); setLinkUrl("");
+    }
+    setFile(null);
     setIsPremium(m.is_premium); setPrice(m.price ? String(m.price) : ""); setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -162,7 +195,14 @@ export default function CourseMaterials() {
     if (!id || !profile?.id) return;
     if (!titleEn.trim()) { setError(lang === "en" ? "English title is required." : "Le titre en anglais est requis."); return; }
     if (isPremium && (!price || Number(price) <= 0)) { setError(lang === "en" ? "Enter a valid price for premium content." : "Entrez un prix valide."); return; }
-    if (sourceMode === "type" && !contentEn.trim()) { setError(lang === "en" ? "Type in the material content." : "Saisissez le contenu."); return; }
+    if (type === "video" && course && !course.allow_videos) {
+      setError(lang === "en" ? "Video materials are disabled for this course." : "Les vidéos sont désactivées pour ce cours.");
+      return;
+    }
+    if (sourceMode === "link") {
+      if (!linkUrl.trim()) { setError(lang === "en" ? "Enter a link URL." : "Entrez une URL."); return; }
+      if (!isValidHttpUrl(linkUrl.trim())) { setError(lang === "en" ? "Enter a valid link starting with http:// or https://." : "Entrez un lien valide commençant par http:// ou https://."); return; }
+    }
     if (sourceMode === "upload" && !file && !editingId) { setError(lang === "en" ? "Choose a file to upload." : "Choisissez un fichier."); return; }
 
     setSaving(true); setError(null);
@@ -191,9 +231,12 @@ export default function CourseMaterials() {
         course_id: id,
         title_en: titleEn.trim(), title_fr: titleFr.trim() || null,
         type,
-        url: sourceMode === "upload" ? storagePath : null,
-        content_en: sourceMode === "type" ? contentEn.trim() : null,
-        content_fr: sourceMode === "type" ? (contentFr.trim() || null) : null,
+        url: sourceMode === "upload" ? storagePath : linkUrl.trim(),
+        // Typed free-text content is no longer offered for new/edited
+        // materials — File, Video, and Link resources are always either
+        // an uploaded file or an external URL now.
+        content_en: null,
+        content_fr: null,
         is_premium: isPremium,
         price: isPremium ? Number(price) : 0,
         sort_order: editingId
@@ -230,7 +273,7 @@ export default function CourseMaterials() {
     });
     if (!ok) return;
     setMaterials(prev => prev.filter(x => x.id !== m.id));
-    if (m.url) await supabase.storage.from("course-materials").remove([m.url]);
+    if (m.url && !isExternalUrl(m.url)) await supabase.storage.from("course-materials").remove([m.url]);
     await supabase.from("course_materials").delete().eq("id", m.id);
     showToast("info", lang === "en" ? "Material deleted." : "Ressource supprimée.");
   };
@@ -307,31 +350,42 @@ export default function CourseMaterials() {
               <div>
                 <label className="label">{lang === "en" ? "Type" : "Type"}</label>
                 <div className="flex gap-2">
-                  {(["note", "video", "file"] as const).map(t => {
+                  {(["file", "video", "link"] as const).map(t => {
                     const meta = TYPE_META[t];
                     const Icon = meta.icon;
+                    const disabled = t === "video" && course ? !course.allow_videos : false;
                     return (
-                      <button key={t} type="button" onClick={() => setType(t)}
+                      <button key={t} type="button" disabled={disabled}
+                        onClick={() => { setType(t); if (t === "link") setSourceMode("link"); else if (sourceMode === "link") setSourceMode("upload"); }}
                         className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border text-xs font-semibold transition-all duration-150
-                          ${type === t ? "border-navy bg-navy/5 text-navy" : "border-gray-200 text-slate hover:border-navy/30"}`}>
+                          ${disabled ? "border-gray-100 text-gray-300 cursor-not-allowed bg-gray-50"
+                            : type === t ? "border-navy bg-navy/5 text-navy" : "border-gray-200 text-slate hover:border-navy/30"}`}>
                         <Icon className="w-4 h-4" strokeWidth={2} />
                         {lang === "en" ? meta.en : meta.fr}
                       </button>
                     );
                   })}
                 </div>
+                {course && !course.allow_videos && (
+                  <p className="text-[11px] text-amber-600 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 flex-shrink-0" strokeWidth={2} />
+                    {lang === "en" ? "Video materials are disabled for this course by the admin." : "Les vidéos sont désactivées pour ce cours par l'administrateur."}
+                  </p>
+                )}
               </div>
 
-              <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl">
-                <button type="button" onClick={() => setSourceMode("upload")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 ${sourceMode === "upload" ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
-                  <UploadCloud className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Upload File" : "Téléverser"}
-                </button>
-                <button type="button" onClick={() => setSourceMode("type")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 ${sourceMode === "type" ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
-                  <AlignLeft className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Type Content" : "Saisir"}
-                </button>
-              </div>
+              {type !== "link" && (
+                <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl">
+                  <button type="button" onClick={() => setSourceMode("upload")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 ${sourceMode === "upload" ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
+                    <UploadCloud className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Upload File" : "Téléverser"}
+                  </button>
+                  <button type="button" onClick={() => setSourceMode("link")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 ${sourceMode === "link" ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
+                    <Link2 className="w-3.5 h-3.5" strokeWidth={2} />{lang === "en" ? "Add Link" : "Ajouter un Lien"}
+                  </button>
+                </div>
+              )}
 
               {sourceMode === "upload" ? (
                 <div>
@@ -360,16 +414,17 @@ export default function CourseMaterials() {
                   </label>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="label">{lang === "en" ? "Content (English)" : "Contenu (Anglais)"} *</label>
-                    <textarea rows={6} value={contentEn} onChange={e => setContentEn(e.target.value)} className="input resize-none"
-                      placeholder={lang === "en" ? "Type or paste the lesson content here…" : "Saisissez le contenu du cours ici…"} />
-                  </div>
-                  <div>
-                    <label className="label">{lang === "en" ? "Content (French)" : "Contenu (Français)"}</label>
-                    <textarea rows={4} value={contentFr} onChange={e => setContentFr(e.target.value)} className="input resize-none" />
-                  </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Link URL" : "URL du Lien"} *</label>
+                  <input type="url" required value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+                    placeholder="https://…" className="input" />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {type === "video"
+                      ? (lang === "en" ? "Paste a YouTube, Vimeo, or other video link." : "Collez un lien YouTube, Vimeo ou autre.")
+                      : type === "link"
+                      ? (lang === "en" ? "Paste any external resource link." : "Collez un lien vers une ressource externe.")
+                      : (lang === "en" ? "Paste a link to an external file (e.g. Google Drive)." : "Collez un lien vers un fichier externe (ex. Google Drive).")}
+                  </p>
                 </div>
               )}
 
@@ -478,7 +533,9 @@ export default function CourseMaterials() {
                         <p className={`text-[11px] font-medium mt-0.5 capitalize ${meta.text} opacity-70`}>{m.type}</p>
                       </div>
                       {m.url ? (
-                        <button onClick={() => setViewingMat(m)} className="text-gray-400 hover:text-brand transition-colors flex-shrink-0">
+                        <button
+                          onClick={() => m.url && isExternalUrl(m.url) ? window.open(m.url, "_blank", "noopener,noreferrer") : setViewingMat(m)}
+                          className="text-gray-400 hover:text-brand transition-colors flex-shrink-0">
                           <Eye className="w-4 h-4" strokeWidth={2} />
                         </button>
                       ) : null}
@@ -497,7 +554,7 @@ export default function CourseMaterials() {
         </div>
       </div>
 
-      {viewingMat && viewingMat.url && (
+      {viewingMat && viewingMat.url && !isExternalUrl(viewingMat.url) && (
         <SecureFileViewer
           open={!!viewingMat}
           onClose={() => setViewingMat(null)}

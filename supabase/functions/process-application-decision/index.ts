@@ -120,7 +120,42 @@ Deno.serve(async (req: Request) => {
     const SITE_URL = (callbackSetting?.value || DEFAULT_SITE_URL).replace(/\/+$/, "");
 
     const { data: course } = await admin.from("courses").select("title, program_id").eq("id", app.course_id).maybeSingle();
-    const courseTitle = course?.title ?? "your course";
+    const programId = app.program_id ?? course?.program_id ?? null;
+
+    // A program can (and often does) have several courses under it — a
+    // student registers for the *program*, runs every course under it
+    // (sometimes just one), and is certified for the program once they're
+    // all done. Approving the application should therefore enrol them in
+    // every course under the program, not only the single course_id the
+    // applicant happened to pick on the form. If the program has no
+    // courses configured under it (or none is set), fall back to just the
+    // one course actually selected.
+    // A course can be linked to a program two ways: its primary
+    // `courses.program_id` column, or an additional link in the
+    // `course_programs` join table (a course can belong to more than one
+    // program). Both need checking, or courses linked only the second way
+    // get silently skipped — matches the same fix in Admissions.tsx.
+    let courseIdsToEnroll: string[] = app.course_id ? [app.course_id] : [];
+    if (programId) {
+      const [{ data: primaryCourses }, { data: links }] = await Promise.all([
+        admin.from("courses").select("id").eq("program_id", programId),
+        admin.from("course_programs").select("course_id").eq("program_id", programId),
+      ]);
+      const resolvedIds = Array.from(new Set([
+        ...(primaryCourses ?? []).map((c: { id: string }) => c.id),
+        ...(links ?? []).map((l: { course_id: string }) => l.course_id),
+      ]));
+      if (resolvedIds.length > 0) courseIdsToEnroll = resolvedIds;
+    }
+
+    let programTitle: string | null = null;
+    if (programId) {
+      const { data: prog } = await admin.from("programs").select("title").eq("id", programId).maybeSingle();
+      programTitle = prog?.title ?? null;
+    }
+    // Prefer the program's name in emails when we know it — that's what
+    // the applicant actually applied to and will be certified in.
+    const courseTitle = programTitle ?? course?.title ?? "your course";
 
     // ── REJECT ──────────────────────────────────────────────────────
     if (decision === "reject") {
@@ -145,10 +180,12 @@ Deno.serve(async (req: Request) => {
     if (app.student_id) {
       // Existing student applying for another course — just enrol them,
       // no account or password step needed.
-      const { error: enrollErr } = await admin.from("enrollments").upsert(
-        { student_id: app.student_id, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
-        { onConflict: "student_id,course_id" }
-      );
+      const { error: enrollErr } = courseIdsToEnroll.length > 0
+        ? await admin.from("enrollments").upsert(
+            courseIdsToEnroll.map(cid => ({ student_id: app.student_id, course_id: cid, program_id: programId, status: "active" })),
+            { onConflict: "student_id,course_id" }
+          )
+        : { error: null };
       await admin.from("applications").update({ status: "approved" }).eq("id", applicationId);
 
       if (enrollErr) {
@@ -166,7 +203,7 @@ Deno.serve(async (req: Request) => {
         emailShell(`
           <p>Dear ${app.applicant_name},</p>
           <p>Great news — your application for <strong>${courseTitle}</strong> has been approved and added to your account.</p>
-          <p>Log in to your student portal to get started. You'll need to complete your registration payment for this course before accessing its content.</p>
+          <p>Log in to your student portal to get started. You'll need to complete your registration payment before accessing course content.</p>
           <p style="text-align:center; margin: 28px 0;">
             <a href="${SITE_URL}/login" style="background:#C9A227; color:#0D2B55; font-weight:bold; padding: 12px 28px; border-radius: 10px; text-decoration:none; display:inline-block;">
               Log In to My Portal
@@ -203,10 +240,12 @@ Deno.serve(async (req: Request) => {
       nationality: app.nationality,
     }).eq("id", userId);
 
-    const { error: enrollErr } = await admin.from("enrollments").upsert(
-      { student_id: userId, course_id: app.course_id, program_id: course?.program_id ?? null, status: "active" },
-      { onConflict: "student_id,course_id" }
-    );
+    const { error: enrollErr } = courseIdsToEnroll.length > 0
+      ? await admin.from("enrollments").upsert(
+          courseIdsToEnroll.map(cid => ({ student_id: userId, course_id: cid, program_id: programId, status: "active" })),
+          { onConflict: "student_id,course_id" }
+        )
+      : { error: null };
 
     await admin.from("applications").update({ status: "approved", student_id: userId, invite_used: true }).eq("id", applicationId);
 
@@ -237,7 +276,7 @@ Deno.serve(async (req: Request) => {
       emailShell(`
         <p>Dear ${app.applicant_name},</p>
         <p>Congratulations — your application for <strong>${courseTitle}</strong> has been approved and your student account is ready.</p>
-        <p>Click below to set your password and access your portal. You'll need to complete your registration payment for this course before its content unlocks.</p>
+        <p>Click below to set your password and access your portal. You'll need to complete your registration payment before course content unlocks.</p>
         <p style="text-align:center; margin: 28px 0;">
           <a href="${linkData.properties.action_link}" style="background:#C9A227; color:#0D2B55; font-weight:bold; padding: 12px 28px; border-radius: 10px; text-decoration:none; display:inline-block;">
             Set My Password

@@ -4,18 +4,19 @@ import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Search, FileText, Video, Paperclip, Lock, Eye, FolderOpen, X } from "lucide-react";
+import { Search, FileText, Video, Paperclip, Link2, Lock, Eye, FolderOpen, X } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import SecureFileViewer from "@/components/SecureFileViewer";
 import { logUsageEvent } from "@/lib/usageEvents";
+import { isExternalUrl } from "@/lib/storage";
 
 interface LibraryItem {
   id: string;
   course_id: string;
   title_en: string;
   title_fr: string | null;
-  type: "note" | "video" | "file";
+  type: "note" | "video" | "file" | "link";
   url: string | null;
   content_en: string | null;
   content_fr: string | null;
@@ -25,12 +26,13 @@ interface LibraryItem {
 }
 
 const TYPE_META: Record<string, { icon: typeof FileText; bg: string; text: string; label: string; fr: string }> = {
-  note:  { icon: FileText,  bg: "bg-blue-50", text: "text-blue-600", label: "Document", fr: "Document" },
-  video: { icon: Video,     bg: "bg-red-50",  text: "text-red-600",  label: "Video",    fr: "Vidéo"    },
-  file:  { icon: Paperclip, bg: "bg-gray-100",text: "text-gray-600", label: "File",     fr: "Fichier"  },
+  note:  { icon: FileText,  bg: "bg-blue-50",   text: "text-blue-600",   label: "Document", fr: "Document" },
+  video: { icon: Video,     bg: "bg-red-50",    text: "text-red-600",    label: "Video",    fr: "Vidéo"    },
+  file:  { icon: Paperclip, bg: "bg-gray-100",  text: "text-gray-600",   label: "File",     fr: "Fichier"  },
+  link:  { icon: Link2,     bg: "bg-purple-50", text: "text-purple-600", label: "Link",     fr: "Lien"     },
 };
 
-type FilterType = "all" | "note" | "video" | "file";
+type FilterType = "all" | "video" | "file" | "link";
 
 export default function StudentLibrary() {
   const { profile } = useAuth();
@@ -82,9 +84,9 @@ export default function StudentLibrary() {
 
   const FILTERS: { key: FilterType; en: string; fr: string }[] = [
     { key: "all", en: "All", fr: "Tous" },
-    { key: "note", en: "Documents", fr: "Documents" },
     { key: "video", en: "Videos", fr: "Vidéos" },
     { key: "file", en: "Files", fr: "Fichiers" },
+    { key: "link", en: "Links", fr: "Liens" },
   ];
 
   return (
@@ -151,10 +153,14 @@ export default function StudentLibrary() {
                     </button>
                   ) : item.url ? (
                     <button
-                      onClick={() => { setViewing(item); if (profile?.id) logUsageEvent(profile.id, "material_view", { courseId: item.course_id, materialId: item.id }); }}
+                      onClick={() => {
+                        if (profile?.id) logUsageEvent(profile.id, "material_view", { courseId: item.course_id, materialId: item.id });
+                        if (isExternalUrl(item.url!)) window.open(item.url!, "_blank", "noopener,noreferrer");
+                        else setViewing(item);
+                      }}
                       className="w-full flex items-center justify-center gap-2 text-sm font-bold bg-navy hover:bg-navy-light text-white py-2.5 rounded-xl transition-colors"
                     >
-                      {lang === "en" ? "View" : "Consulter"}
+                      {item.type === "link" ? (lang === "en" ? "Open" : "Ouvrir") : (lang === "en" ? "View" : "Consulter")}
                       <Eye className="w-4 h-4" strokeWidth={2.5} />
                     </button>
                   ) : (
@@ -173,7 +179,7 @@ export default function StudentLibrary() {
         </div>
       )}
 
-      {viewing && viewing.url && (
+      {viewing && viewing.url && !isExternalUrl(viewing.url) && (
         <SecureFileViewer
           open={!!viewing}
           onClose={() => setViewing(null)}

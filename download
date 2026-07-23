@@ -1,0 +1,14 @@
+1. under lecturer - resources - clicking open a resource tries to open an external link (item url), resulting in 404
+
+
+1. links for vidoes
+since note and file is alomost the same
+let's pick file
+
+File, Vidoe, link
+
+works the same, if the link is clicked then let is count
+
+and admin can decide if a course allows vidoes or not
+if no use only file and link
+this can be set per course and not globally

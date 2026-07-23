@@ -4,29 +4,37 @@ import LecturerLayout from "@/components/LecturerLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Search, FileText, Video, Paperclip, Lock, ExternalLink, FolderOpen } from "lucide-react";
+import { Search, FileText, Video, Paperclip, Link2, Lock, ExternalLink, FolderOpen, X } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import SecureFileViewer from "@/components/SecureFileViewer";
+import { isExternalUrl } from "@/lib/storage";
 
 interface MaterialRow {
   id: string;
   title_en: string;
   title_fr: string | null;
-  type: "note" | "video" | "file";
-  url: string;
+  type: "note" | "video" | "file" | "link";
+  url: string | null;
+  content_en: string | null;
+  content_fr: string | null;
   is_premium: boolean;
   price: number | null;
   course_id: string;
   courses?: { title: string; title_fr?: string; code?: string } | null;
 }
 
+// "note" is kept here only so any pre-existing typed-note materials still
+// render with a sensible icon/label — new materials are always File,
+// Video, or Link (see lecturer/CourseMaterials.tsx).
 const TYPE_META: Record<string, { icon: typeof FileText; bg: string; text: string; en: string; fr: string }> = {
-  note:  { icon: FileText,  bg: "bg-blue-50",  text: "text-blue-600", en: "Document", fr: "Document" },
-  video: { icon: Video,     bg: "bg-red-50",   text: "text-red-600",  en: "Video",    fr: "Vidéo"    },
-  file:  { icon: Paperclip, bg: "bg-gray-100", text: "text-gray-600", en: "File",     fr: "Fichier"  },
+  note:  { icon: FileText,  bg: "bg-blue-50",   text: "text-blue-600",   en: "Document", fr: "Document" },
+  video: { icon: Video,     bg: "bg-red-50",    text: "text-red-600",    en: "Video",    fr: "Vidéo"    },
+  file:  { icon: Paperclip, bg: "bg-gray-100",  text: "text-gray-600",   en: "File",     fr: "Fichier"  },
+  link:  { icon: Link2,     bg: "bg-purple-50", text: "text-purple-600", en: "Link",     fr: "Lien"     },
 };
 
-type FilterType = "all" | "note" | "video" | "file";
+type FilterType = "all" | "video" | "file" | "link";
 
 export default function LecturerResources() {
   const { profile } = useAuth();
@@ -38,6 +46,15 @@ export default function LecturerResources() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [search, setSearch] = useState("");
+  // Storage-backed files (uploaded note/file/video) are previewed through
+  // the signed-URL viewer. External links (type "link", or a video/file
+  // added via a pasted URL) are opened directly in a new tab instead —
+  // resolveSecureUrl only understands storage paths, and passing it a
+  // real external URL was exactly what caused the "Open" button here to
+  // 404 (the raw stored value was used as an <a href> even when it was a
+  // bare storage path, not a real address).
+  const [viewingItem, setViewingItem] = useState<MaterialRow | null>(null);
+  const [readingItem, setReadingItem] = useState<MaterialRow | null>(null);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -68,10 +85,16 @@ export default function LecturerResources() {
 
   const FILTERS: { key: FilterType; en: string; fr: string }[] = [
     { key: "all", en: "All", fr: "Tous" },
-    { key: "note", en: "Documents", fr: "Documents" },
     { key: "video", en: "Videos", fr: "Vidéos" },
     { key: "file", en: "Files", fr: "Fichiers" },
+    { key: "link", en: "Links", fr: "Liens" },
   ];
+
+  const openItem = (item: MaterialRow) => {
+    if (!item.url) { setReadingItem(item); return; }
+    if (isExternalUrl(item.url)) { window.open(item.url, "_blank", "noopener,noreferrer"); return; }
+    setViewingItem(item);
+  };
 
   return (
     <LecturerLayout title={lang === "en" ? "Resources" : "Ressources"}>
@@ -129,11 +152,11 @@ export default function LecturerResources() {
                   </div>
                 </div>
                 <div className="px-5 pb-5 flex gap-2">
-                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                  <button onClick={() => openItem(item)}
                     className="flex-1 flex items-center justify-center gap-2 text-sm font-bold bg-navy hover:bg-navy-light text-white py-2.5 rounded-xl transition-colors">
                     {lang === "en" ? "Open" : "Ouvrir"}
                     <ExternalLink className="w-3.5 h-3.5" strokeWidth={2.5} />
-                  </a>
+                  </button>
                   <Link to={`/lecturer/courses/${item.course_id}/materials`}
                     className="flex items-center justify-center text-sm font-bold border border-gray-200 text-slate hover:border-navy/30 hover:text-navy px-4 py-2.5 rounded-xl transition-all duration-150">
                     {lang === "en" ? "Manage" : "Gérer"}
@@ -142,6 +165,33 @@ export default function LecturerResources() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {viewingItem && viewingItem.url && !isExternalUrl(viewingItem.url) && (
+        <SecureFileViewer
+          open={!!viewingItem}
+          onClose={() => setViewingItem(null)}
+          title={(lang === "fr" && viewingItem.title_fr) ? viewingItem.title_fr : viewingItem.title_en}
+          storedUrl={viewingItem.url}
+          kind={viewingItem.type}
+        />
+      )}
+
+      {readingItem && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setReadingItem(null)} />
+          <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-2xl p-7">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-ink text-lg">{(lang === "fr" && readingItem.title_fr) ? readingItem.title_fr : readingItem.title_en}</h3>
+              <button onClick={() => setReadingItem(null)} className="text-gray-400 hover:text-ink p-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+                <X className="w-5 h-5" strokeWidth={2} />
+              </button>
+            </div>
+            <div className="prose prose-sm max-w-none text-ink whitespace-pre-wrap leading-relaxed">
+              {((lang === "fr" && readingItem.content_fr) ? readingItem.content_fr : readingItem.content_en) || "—"}
+            </div>
+          </div>
         </div>
       )}
     </LecturerLayout>
