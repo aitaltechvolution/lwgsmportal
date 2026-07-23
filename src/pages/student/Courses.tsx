@@ -62,6 +62,11 @@ export default function StudentCourses() {
       });
   }, [profile?.id]);
 
+  const getTitle = (c: Enrollment["courses"]) => {
+    if (!c) return "—";
+    return lang === "fr" && c.title_fr ? c.title_fr : c.title;
+  };
+
   const filtered = enrollments
     .filter((e) => !!e.courses) // course unpublished/removed → RLS returns null; hide entirely, don't show a blank card
     .filter((e) => tab === "all" || e.status === tab)
@@ -75,12 +80,8 @@ export default function StudentCourses() {
         c?.code?.toLowerCase().includes(q) ||
         c?.profiles?.full_name?.toLowerCase().includes(q)
       );
-    });
-
-  const getTitle = (c: Enrollment["courses"]) => {
-    if (!c) return "—";
-    return lang === "fr" && c.title_fr ? c.title_fr : c.title;
-  };
+    })
+    .sort((a, b) => getTitle(a.courses).localeCompare(getTitle(b.courses)));
 
   return (
     <StudentLayout title={lang === "en" ? "My Courses" : "Mes Cours"}>
@@ -101,7 +102,7 @@ export default function StudentCourses() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/admissions" className="inline-flex items-center gap-1.5 text-sm font-bold text-navy border border-navy/15 hover:bg-navy hover:text-white rounded-xl px-4 py-2.5 transition-all whitespace-nowrap">
+          <Link to="/admissions" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-bold text-navy border border-navy/15 hover:bg-navy hover:text-white rounded-xl px-4 py-2.5 transition-all whitespace-nowrap">
             <GraduationCap className="w-4 h-4" strokeWidth={2} />
             {lang === "en" ? "Apply for Another Course" : "Postuler à un Autre Cours"}
           </Link>

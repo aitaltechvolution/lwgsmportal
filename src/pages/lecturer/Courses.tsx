@@ -74,6 +74,9 @@ export default function LecturerCourses() {
     }
 
     const courseList = (data ?? []) as unknown as Course[];
+    courseList.sort((a, b) =>
+      (lang === "fr" && a.title_fr ? a.title_fr : a.title).localeCompare(lang === "fr" && b.title_fr ? b.title_fr : b.title)
+    );
 
     // Fetch student counts per course
     if (courseList.length > 0) {

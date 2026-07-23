@@ -1,0 +1,10 @@
+Options -MultiViews
+RewriteEngine On
+
+# Don't rewrite requests for real files/directories (assets, images, etc.)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Everything else falls back to index.html so React Router can handle the route
+RewriteRule ^ index.html [L]

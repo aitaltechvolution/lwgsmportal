@@ -54,7 +54,11 @@ export default function ProgramDetail() {
     ]).then(([pRes, cRes]) => {
       if (!pRes.data) setNotFound(true);
       setProgram(pRes.data);
-      setCourses(cRes.data ?? []);
+      const courseList = cRes.data ?? [];
+      courseList.sort((a, b) =>
+        (lang === "fr" && a.title_fr ? a.title_fr : a.title).localeCompare(lang === "fr" && b.title_fr ? b.title_fr : b.title)
+      );
+      setCourses(courseList);
       setLoading(false);
     });
   }, [id]);

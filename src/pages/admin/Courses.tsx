@@ -76,6 +76,9 @@ export default function AdminCourses() {
     }
 
     const list = (cRes.data ?? []) as unknown as CourseRow[];
+    list.sort((a, b) =>
+      (lang === "fr" && a.title_fr ? a.title_fr : a.title).localeCompare(lang === "fr" && b.title_fr ? b.title_fr : b.title)
+    );
     const courseIds = list.map(c => c.id);
     const progList = (pRes.data ?? []) as Program[];
     const progNameMap = new Map(progList.map(p => [p.id, (lang === "fr" && p.title_fr) ? p.title_fr : p.title]));
