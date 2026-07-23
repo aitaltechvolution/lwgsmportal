@@ -18,7 +18,7 @@ interface EnrollmentRow {
 }
 
 interface Student { id: string; full_name: string; email: string; }
-interface Course { id: string; title: string; title_fr: string | null; code: string | null; program_id: string | null; }
+interface Program { id: string; title: string; title_fr: string | null; }
 
 const STATUS_COLOR: Record<string, "green" | "yellow" | "blue" | "red" | "gray"> = {
   active: "green", pending: "yellow", completed: "blue", rejected: "red",
@@ -36,33 +36,37 @@ export default function AdminEnrollments() {
 
   const [enrollments, setEnrollments] = useState<EnrollmentRow[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "active" | "completed" | "rejected">("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Manual enrollment modal
+  // Manual enrollment modal — a student registers for a PROGRAMME, not an
+  // individual course (see process-application-decision, which enrols
+  // into every course under the applied-to programme on approval). This
+  // form now mirrors that: pick a programme, and every course under it
+  // gets enrolled, not just one hand-picked course.
   const [showModal, setShowModal] = useState(false);
   const [enrStudentId, setEnrStudentId] = useState("");
-  const [enrCourseId, setEnrCourseId] = useState("");
+  const [enrProgramId, setEnrProgramId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const [enrRes, stuRes, cRes] = await Promise.all([
+    const [enrRes, stuRes, progRes] = await Promise.all([
       supabase
         .from("enrollments")
         .select("id, student_id, course_id, status, enrolled_at, student:student_id(full_name, email, avatar_url), course:course_id(title, title_fr, code, programs!courses_program_id_fkey(title, title_fr))")
         .order("enrolled_at", { ascending: false })
         .limit(200),
       supabase.from("profiles").select("id, full_name, email").eq("role", "student").order("full_name"),
-      supabase.from("courses").select("id, title, title_fr, code, program_id").order("title"),
+      supabase.from("programs").select("id, title, title_fr").order("title"),
     ]);
     setEnrollments((enrRes.data ?? []) as unknown as EnrollmentRow[]);
     setStudents((stuRes.data ?? []) as Student[]);
-    setCourses((cRes.data ?? []) as Course[]);
+    setPrograms((progRes.data ?? []) as Program[]);
     setLoading(false);
   };
 
@@ -90,20 +94,50 @@ export default function AdminEnrollments() {
 
   const onManualEnroll = async (e: FormEvent) => {
     e.preventDefault();
-    if (!enrStudentId || !enrCourseId) { setError(lang === "en" ? "Select both a student and a course." : "Sélectionnez un étudiant et un cours."); return; }
-
-    // Check for existing enrollment
-    const { data: existing } = await supabase.from("enrollments").select("id, status").eq("student_id", enrStudentId).eq("course_id", enrCourseId).maybeSingle();
-    if (existing) { setError(lang === "en" ? "This student is already enrolled in that course." : "Cet étudiant est déjà inscrit dans ce cours."); return; }
+    if (!enrStudentId || !enrProgramId) { setError(lang === "en" ? "Select both a student and a programme." : "Sélectionnez un étudiant et un programme."); return; }
 
     setSaving(true); setError(null);
-    const enrCourse = courses.find(c => c.id === enrCourseId);
-    const { error: err } = await supabase.from("enrollments").insert({
-      student_id: enrStudentId, course_id: enrCourseId, program_id: enrCourse?.program_id ?? null, status: "active",
-    });
+
+    // A course can be linked to a programme two ways: its primary
+    // courses.program_id column, or an additional link in the
+    // course_programs join table (a course can belong to more than one
+    // programme) — same fix as process-application-decision and
+    // Admissions.tsx, so manual enrollment picks up the exact same set of
+    // courses an approved application would.
+    const [{ data: primaryCourses }, { data: links }] = await Promise.all([
+      supabase.from("courses").select("id").eq("program_id", enrProgramId),
+      supabase.from("course_programs").select("course_id").eq("program_id", enrProgramId),
+    ]);
+    const courseIds = Array.from(new Set([
+      ...(primaryCourses ?? []).map((c: { id: string }) => c.id),
+      ...(links ?? []).map((l: { course_id: string }) => l.course_id),
+    ]));
+
+    if (courseIds.length === 0) {
+      setSaving(false);
+      setError(lang === "en" ? "This programme has no courses configured under it." : "Ce programme n'a aucun cours configuré.");
+      return;
+    }
+
+    // Don't re-insert courses this student is already enrolled in —
+    // upsert would just update them, but we want to tell the admin
+    // exactly what happened rather than silently no-op on all of them.
+    const { data: existing } = await supabase.from("enrollments").select("course_id").eq("student_id", enrStudentId).in("course_id", courseIds);
+    const alreadyEnrolledIds = new Set((existing ?? []).map((e: { course_id: string }) => e.course_id));
+    const toInsert = courseIds.filter(id => !alreadyEnrolledIds.has(id));
+
+    if (toInsert.length === 0) {
+      setSaving(false);
+      setError(lang === "en" ? "This student is already enrolled in every course under that programme." : "Cet étudiant est déjà inscrit à tous les cours de ce programme.");
+      return;
+    }
+
+    const { error: err } = await supabase.from("enrollments").insert(
+      toInsert.map(cid => ({ student_id: enrStudentId, course_id: cid, program_id: enrProgramId, status: "active" }))
+    );
     setSaving(false);
     if (err) { setError(err.message); return; }
-    setShowModal(false); setEnrStudentId(""); setEnrCourseId("");
+    setShowModal(false); setEnrStudentId(""); setEnrProgramId("");
     load();
   };
 
@@ -237,15 +271,17 @@ export default function AdminEnrollments() {
             </select>
           </div>
           <div>
-            <label className="label">{lang === "en" ? "Course" : "Cours"} *</label>
-            <select required value={enrCourseId} onChange={e => setEnrCourseId(e.target.value)} className="input">
-              <option value="">{lang === "en" ? "Select course…" : "Sélectionner un cours…"}</option>
-              {courses.map(c => <option key={c.id} value={c.id}>{c.code ? `${c.code} — ` : ""}{(lang === "fr" && c.title_fr) ? c.title_fr : c.title}</option>)}
+            <label className="label">{lang === "en" ? "Programme" : "Programme"} *</label>
+            <select required value={enrProgramId} onChange={e => setEnrProgramId(e.target.value)} className="input">
+              <option value="">{lang === "en" ? "Select programme…" : "Sélectionner un programme…"}</option>
+              {programs.map(p => <option key={p.id} value={p.id}>{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</option>)}
             </select>
           </div>
           {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
           <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700">
-            {lang === "en" ? "This creates an active enrollment immediately, bypassing the standard application flow." : "Cela crée une inscription active immédiatement, en contournant le processus de candidature standard."}
+            {lang === "en"
+              ? "Enrols this student into every course under the selected programme immediately, bypassing the standard application flow."
+              : "Inscrit cet étudiant immédiatement à tous les cours du programme sélectionné, en contournant le processus de candidature standard."}
           </div>
           <div className="flex gap-3">
             <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 disabled:translate-y-0">
