@@ -14,6 +14,9 @@ interface InitiateArgs {
   paymentType: string;
   publicKey: string;
   courseId?: string;
+  /** Set for registration payments, which unlock every course under a
+   *  programme at once rather than one specific course. */
+  programId?: string;
   /** Free-text description stored on the payments row. Used by flows that
    *  have no dedicated FK column on `payments` (e.g. certificate fees) to
    *  identify which specific item a pending/success row belongs to. */
@@ -43,7 +46,7 @@ function generateReference() {
  */
 export function usePaystackPayment() {
   const initiate = useCallback(async (args: InitiateArgs): Promise<InitiateResult> => {
-    const { email, amountUsd, exchangeRate, amountNgn: amountNgnOverride, studentId, paymentType, publicKey, courseId, description } = args;
+    const { email, amountUsd, exchangeRate, amountNgn: amountNgnOverride, studentId, paymentType, publicKey, courseId, programId, description } = args;
     const reference = generateReference();
     const amountNgn = amountNgnOverride ?? Math.round(amountUsd * exchangeRate * 100) / 100;
     const amountKobo = Math.round(amountNgn * 100);
@@ -59,6 +62,7 @@ export function usePaystackPayment() {
       status: "pending",
       reference,
       course_id: courseId ?? null,
+      program_id: programId ?? null,
       description: description ?? null,
     });
     if (insErr) throw insErr;

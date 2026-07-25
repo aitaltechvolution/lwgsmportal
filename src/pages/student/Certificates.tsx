@@ -4,9 +4,8 @@ import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Award, Download, ShieldCheck, ShieldQuestion, BadgeCheck, CheckCircle2, AlertCircle as AlertCircleIcon } from "lucide-react";
+import { Award, Download, ShieldCheck, ShieldQuestion, BadgeCheck, CheckCircle2, Lock, AlertCircle as AlertCircleIcon } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard, ProgressBar } from "@/components/ui/primitives";
-import { useCurrency } from "@/contexts/CurrencyContext";
 import CertificatePreviewModal from "@/components/CertificatePreviewModal";
 import { CertificateData } from "@/components/CertificateCard";
 
@@ -22,7 +21,7 @@ interface Certificate {
   program_id: string | null;
   matric_number: string | null;
   is_paid: boolean;
-  programs?: { title: string; title_fr?: string } | null;
+  programs?: { title: string; title_fr?: string; type?: string; delivery_mode?: "online" | "onsite" | "self_paced" } | null;
 }
 
 interface EligibilityRow {
@@ -39,30 +38,48 @@ export default function StudentCertificates() {
   const { profile } = useAuth();
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { format } = useCurrency();
   const navigate = useNavigate();
 
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [eligibility, setEligibility] = useState<EligibilityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewCert, setPreviewCert] = useState<Certificate | null>(null);
-  const [certFee, setCertFee] = useState(0);
+  // Certificate fees vary by programme type (Certificate/Diploma/Pastoral)
+  // and, for Diploma/Certificate only, whether the programme is
+  // self-paced — see admin Settings. Fetched once as a lookup map, keyed
+  // exactly like the site_settings rows: fee_cert_<type>[_selfpaced].
+  const [certFees, setCertFees] = useState<Record<string, number>>({});
 
   const load = async () => {
     if (!profile?.id) return;
     setLoading(true);
     const [certRes, eligRes, feeRes] = await Promise.all([
-      supabase.from("certificates").select("*, programs(title, title_fr)").eq("student_id", profile.id).order("issue_date", { ascending: false }),
+      supabase.from("certificates").select("*, programs(title, title_fr, type, delivery_mode)").eq("student_id", profile.id).order("issue_date", { ascending: false }),
       supabase.from("certificate_eligibility").select("*, programs:program_id(title, title_fr)").eq("student_id", profile.id),
-      supabase.from("site_settings").select("value").eq("key", "fee_certificate").maybeSingle(),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "fee_cert_certificate", "fee_cert_diploma", "fee_cert_pastoral",
+        "fee_cert_certificate_selfpaced", "fee_cert_diploma_selfpaced",
+      ]),
     ]);
     setCerts((certRes.data ?? []) as unknown as Certificate[]);
     setEligibility((eligRes.data ?? []) as unknown as EligibilityRow[]);
-    setCertFee(Number(feeRes.data?.value ?? 0));
+    const feeMap: Record<string, number> = {};
+    (feeRes.data ?? []).forEach((r: { key: string; value: string }) => { feeMap[r.key] = Number(r.value ?? 0); });
+    setCertFees(feeMap);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, [profile?.id]);
+
+  // Resolves this specific certificate's fee — its programme's type, plus
+  // "_selfpaced" if that programme is self-paced (Pastoral never is, so
+  // this naturally only ever applies to Certificate/Diploma).
+  const getCertFee = (cert: Certificate): number => {
+    const type = cert.programs?.type;
+    if (!type) return 0;
+    const key = `fee_cert_${type}${cert.programs?.delivery_mode === "self_paced" ? "_selfpaced" : ""}`;
+    return certFees[key] ?? 0;
+  };
 
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "long", year: "numeric" });
 
@@ -88,7 +105,11 @@ export default function StudentCertificates() {
     const params = new URLSearchParams({
       certificateId: cert.id,
       certNumber: encodeURIComponent(cert.certificate_number),
-      certAmount: String(certFee),
+      // The certificate fee is NGN-native (set directly in Naira by the
+      // admin, like registration fees) — not a USD figure to be
+      // converted, hence the distinct "Ngn" param name, mirroring how the
+      // registration flow already passes registerAmountNgn.
+      certAmountNgn: String(getCertFee(cert)),
     });
     navigate(`/student/payments?${params.toString()}`);
   };
@@ -169,8 +190,8 @@ export default function StudentCertificates() {
                       <AlertCircleIcon className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" strokeWidth={2} />
                       <p className="text-xs text-amber-700">
                         {lang === "en"
-                          ? "Collection fee not yet confirmed — your certificate shows a PREVIEW watermark until payment is confirmed."
-                          : "Frais de retrait non encore confirmés — votre certificat affiche un filigrane APERÇU jusqu'à confirmation du paiement."}
+                          ? "Collection fee not yet confirmed — your certificate is locked until payment is confirmed."
+                          : "Frais de retrait non encore confirmés — votre certificat est verrouillé jusqu'à confirmation du paiement."}
                       </p>
                     </div>
                   )}
@@ -191,17 +212,29 @@ export default function StudentCertificates() {
                     )}
                   </div>
 
-                  <div className="flex gap-2 mb-2.5">
-                    <button onClick={() => setPreviewCert(cert)}
-                      className="flex-1 flex items-center justify-center gap-2 text-sm font-bold bg-navy hover:bg-navy-light text-white py-2.5 rounded-xl transition-colors">
-                      <Download className="w-4 h-4" strokeWidth={2} />
-                      {lang === "en" ? "Download Certificate" : "Télécharger le Certificat"}
-                    </button>
-                    <a href={`/verify?cert=${cert.certificate_number}`}
-                      className="flex-shrink-0 text-sm font-bold border border-gray-200 text-slate hover:border-navy hover:text-navy px-4 py-2.5 rounded-xl transition-all">
-                      {lang === "en" ? "Verify" : "Vérifier"}
-                    </a>
-                  </div>
+                  {cert.is_paid ? (
+                    <div className="flex gap-2 mb-2.5">
+                      <button onClick={() => setPreviewCert(cert)}
+                        className="flex-1 flex items-center justify-center gap-2 text-sm font-bold bg-navy hover:bg-navy-light text-white py-2.5 rounded-xl transition-colors">
+                        <Download className="w-4 h-4" strokeWidth={2} />
+                        {lang === "en" ? "Download Certificate" : "Télécharger le Certificat"}
+                      </button>
+                      <a href={`/verify?cert=${cert.certificate_number}`}
+                        className="flex-shrink-0 text-sm font-bold border border-gray-200 text-slate hover:border-navy hover:text-navy px-4 py-2.5 rounded-xl transition-all">
+                        {lang === "en" ? "Verify" : "Vérifier"}
+                      </a>
+                    </div>
+                  ) : (
+                    // Not paid yet — no preview, no download. Only the
+                    // payment action below is available until the fee is
+                    // confirmed; a watermarked preview still let students
+                    // effectively see/screenshot the certificate before
+                    // paying, which defeats the point of the fee.
+                    <div className="mb-2.5 flex items-center justify-center gap-2 text-sm font-bold text-gray-400 border border-dashed border-gray-200 py-2.5 rounded-xl">
+                      <Lock className="w-4 h-4" strokeWidth={2} />
+                      {lang === "en" ? "Locked until payment is confirmed" : "Verrouillé jusqu'à confirmation du paiement"}
+                    </div>
+                  )}
 
                   {!cert.is_paid && (
                     <button
@@ -209,7 +242,7 @@ export default function StudentCertificates() {
                       className="w-full flex items-center justify-center gap-2 text-sm font-bold border border-amber-200 text-brand hover:bg-orange-50 py-2.5 rounded-xl transition-all disabled:opacity-60"
                     >
                       <Award className="w-4 h-4" strokeWidth={2} />
-                      {lang === "en" ? `Request Certificate${certFee ? ` (${format(certFee)})` : ""}` : `Demander le Certificat${certFee ? ` (${format(certFee)})` : ""}`}
+                      {lang === "en" ? `Request Certificate${getCertFee(cert) ? ` (₦${getCertFee(cert).toLocaleString()})` : ""}` : `Demander le Certificat${getCertFee(cert) ? ` (₦${getCertFee(cert).toLocaleString()})` : ""}`}
                     </button>
                   )}
                 </div>

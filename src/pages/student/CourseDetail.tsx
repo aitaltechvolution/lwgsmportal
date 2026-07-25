@@ -19,8 +19,8 @@ import { isExternalUrl, resolveSecureUrl } from "@/lib/storage";
 interface Course {
   id: string; title: string; title_fr: string | null; code: string | null;
   description: string | null; description_fr: string | null; objectives: string | null;
-  duration: string | null; credits: number | null; is_published: boolean;
-  programs?: { title: string; title_fr?: string; type?: string } | null;
+  duration: string | null; credits: number | null; is_published: boolean; program_id: string | null;
+  programs?: { title: string; title_fr?: string; type?: string; delivery_mode?: "online" | "onsite" | "self_paced" } | null;
   profiles?: { full_name: string; title: string | null; email: string } | null;
 }
 interface Material {
@@ -106,7 +106,7 @@ export default function CourseDetail() {
 
     const [cRes, mRes, aRes, subRes, eRes, unlockRes, regRes, regFeeRes] = await Promise.all([
       supabase.from("courses")
-        .select("*, programs!courses_program_id_fkey(title,title_fr,type), profiles(full_name,title,email)")
+        .select("*, programs!courses_program_id_fkey(title,title_fr,type,delivery_mode), profiles(full_name,title,email)")
         .eq("id", id).maybeSingle(),
       supabase.from("course_materials").select("*").eq("course_id", id)
         .order("sort_order", { ascending: true, nullsFirst: false })
@@ -123,29 +123,39 @@ export default function CourseDetail() {
       supabase.from("enrollments").select("*").eq("course_id", id).eq("student_id", profile.id).maybeSingle(),
       supabase.from("payments").select("material_id, status, manual_confirmed")
         .eq("student_id", profile.id).not("material_id", "is", null),
-      supabase.from("payments").select("id, status, manual_confirmed, course_id")
+      supabase.from("payments").select("id, status, manual_confirmed, program_id")
         .eq("student_id", profile.id).eq("type", "registration"),
-      supabase.from("site_settings").select("key, value").in("key", ["fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral"]),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral",
+        "fee_reg_certificate_selfpaced", "fee_reg_diploma_selfpaced",
+      ]),
     ]);
 
     const course = cRes.data as Course | null;
     const progType = course?.programs?.type ?? "certificate";
     const feeMap = new Map((regFeeRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
-    const feeKey = progType === "diploma" ? "fee_reg_diploma" : progType === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
+    const baseFeeKey = progType === "diploma" ? "fee_reg_diploma" : progType === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
+    // Self-paced pricing only exists for Diploma/Certificate — Pastoral
+    // can never be self-paced, so baseFeeKey is always used for it.
+    const selfPaced = course?.programs?.delivery_mode === "self_paced";
+    const feeKey = selfPaced && baseFeeKey !== "fee_reg_pastoral" ? `${baseFeeKey}_selfpaced` : baseFeeKey;
     // fee_reg_* settings are entered by the admin in Naira (see the "(₦)"
     // labels in Settings), but registrationFee feeds format()/the Paystack
     // charge as a USD amount everywhere downstream — convert here, once,
     // so the rest of the flow keeps working in USD like every other payment.
-    const feeNgn = Number(feeMap.get(feeKey) ?? (progType === "certificate" ? 10000 : 0));
+    const feeNgn = Number(feeMap.get(feeKey) ?? feeMap.get(baseFeeKey) ?? (progType === "certificate" ? 10000 : 0));
     setRegistrationFee(exchangeRate ? feeNgn / exchangeRate : feeNgn);
     setRegistrationFeeNgn(feeNgn);
 
-    // A registration payment counts for THIS course specifically if it's
-    // tagged with this course_id — a payment made for a different course
-    // does not unlock this one.
+    // A single registration payment for the WHOLE PROGRAMME (not this
+    // course specifically) unlocks every course under it — a student
+    // registers for a programme, not an individual course. Approving an
+    // application already enrols them in every course under the
+    // programme at once (see process-application-decision); this check
+    // just needs to match on program_id now instead of course_id.
     setHasPaidRegistration(
-      (regRes.data ?? []).some((p: { status: string; manual_confirmed: boolean; course_id: string | null }) =>
-        p.course_id === id && (p.status === "success" || p.manual_confirmed))
+      (regRes.data ?? []).some((p: { status: string; manual_confirmed: boolean; program_id: string | null }) =>
+        p.program_id === course?.program_id && (p.status === "success" || p.manual_confirmed))
     );
 
     const assignmentsWithSubs = ((aRes.data ?? []) as Assignment[]).map(a => ({
@@ -302,7 +312,7 @@ export default function CourseDetail() {
         <EmptyState icon={Search}
           title={lang === "en" ? "Course not found" : "Cours introuvable"}
           description={lang === "en" ? "This course may have been removed or is not yet published." : "Ce cours a peut-être été retiré ou n'est pas encore publié."}
-          action={<Link to="/student/courses" className="btn-outline">{lang === "en" ? "Back to My Courses" : "Retour aux Cours"}</Link>}
+          action={<Link to="/student/courses" className="btn-outline">{lang === "en" ? "Back to My Programmes" : "Retour aux Programmes"}</Link>}
         />
       </StudentLayout>
     );
@@ -314,14 +324,21 @@ export default function CourseDetail() {
         <EmptyState icon={Lock}
           title={lang === "en" ? "Complete Your Registration to Continue" : "Complétez Votre Inscription pour Continuer"}
           description={lang === "en"
-            ? "Access to course content requires your registration fee to be paid and confirmed first. Once it's confirmed, this course will unlock automatically."
-            : "L'accès au contenu des cours nécessite le paiement et la confirmation de vos frais d'inscription. Une fois confirmé, ce cours se déverrouillera automatiquement."}
+            ? "Access to course content requires your programme's registration fee to be paid and confirmed first. Once it's confirmed, every course under this programme unlocks automatically."
+            : "L'accès au contenu des cours nécessite le paiement et la confirmation des frais d'inscription de votre programme. Une fois confirmé, tous les cours de ce programme se déverrouilleront automatiquement."}
           action={
-            <Link
-              to={`/student/payments?registerCourse=${id}&amount=${registrationFee}&amountNgn=${registrationFeeNgn}&courseTitle=${encodeURIComponent((lang === "fr" && course.title_fr) ? course.title_fr : course.title)}`}
-              className="btn-primary">
-              {lang === "en" ? `Pay Registration Fee (${format(registrationFee)})` : `Payer les Frais d'Inscription (${format(registrationFee)})`}
-            </Link>
+            <div className="flex flex-col items-center gap-3">
+              <Link
+                to={`/student/payments?registerProgram=${course.program_id}&amount=${registrationFee}&amountNgn=${registrationFeeNgn}&programTitle=${encodeURIComponent((lang === "fr" && course.programs?.title_fr) ? course.programs.title_fr : course.programs?.title ?? "")}`}
+                className="btn-primary">
+                {lang === "en" ? `Pay Registration Fee (${format(registrationFee)})` : `Payer les Frais d'Inscription (${format(registrationFee)})`}
+              </Link>
+              {course.program_id && (
+                <Link to={`/student/courses/program/${course.program_id}`} className="text-sm text-slate hover:text-navy transition-colors">
+                  {lang === "en" ? "← Back to programme" : "← Retour au programme"}
+                </Link>
+              )}
+            </div>
           }
         />
       </StudentLayout>

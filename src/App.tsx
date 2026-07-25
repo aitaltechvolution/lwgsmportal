@@ -17,7 +17,8 @@ import Register from "@/pages/auth/Register";
 import ForgotPassword from "@/pages/auth/ForgotPassword";
 import ResetPassword from "@/pages/auth/ResetPassword";
 import StudentPortal from "@/pages/student/Portal";
-import StudentCourses from "@/pages/student/Courses";
+import StudentPrograms from "@/pages/student/Programs";
+import StudentProgramCourses from "@/pages/student/StudentProgramCourses";
 import CourseDetail from "@/pages/student/CourseDetail";
 import StudentAssessments from "@/pages/student/Assessments";
 import AssessmentDetail from "@/pages/student/AssessmentDetail";
@@ -84,7 +85,8 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/student" element={<ProtectedRoute roles={["student"]}><StudentPortal /></ProtectedRoute>} />
-        <Route path="/student/courses" element={<ProtectedRoute roles={["student"]}><StudentCourses /></ProtectedRoute>} />
+        <Route path="/student/courses" element={<ProtectedRoute roles={["student"]}><StudentPrograms /></ProtectedRoute>} />
+        <Route path="/student/courses/program/:programId" element={<ProtectedRoute roles={["student"]}><StudentProgramCourses /></ProtectedRoute>} />
         <Route path="/student/courses/:id" element={<ProtectedRoute roles={["student"]}><CourseDetail /></ProtectedRoute>} />
         <Route path="/student/assessments" element={<ProtectedRoute roles={["student"]}><StudentAssessments /></ProtectedRoute>} />
         <Route path="/student/assessments/:id" element={<ProtectedRoute roles={["student"]}><AssessmentDetail /></ProtectedRoute>} />

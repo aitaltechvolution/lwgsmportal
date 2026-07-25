@@ -16,6 +16,18 @@ interface BankAccount {
   currency: string;
 }
 
+interface EnrollmentProgramRow {
+  program_id: string | null;
+  programs: { id: string; title: string; title_fr: string | null; type: string; delivery_mode: string | null } | null;
+}
+
+interface UnpaidCertificateRow {
+  id: string;
+  certificate_number: string;
+  program_id: string | null;
+  programs: { title: string; title_fr: string | null; type: string; delivery_mode: string | null } | null;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -48,35 +60,52 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [transferClaimed, setTransferClaimed] = useState(false);
 
+  // Registration is programme-scoped now — a single payment unlocks every
+  // course under a programme (see the registration gate on
+  // ProgramCourses/CourseDetail), so a registration payment MUST be tied
+  // to a specific programme via program_id, not left dangling with
+  // neither a course_id nor a program_id. When "Registration Fee" is
+  // selected, the student picks which of their unpaid programmes it's for.
+  const [unpaidPrograms, setUnpaidPrograms] = useState<{ id: string; title: string; title_fr: string | null; type: string; delivery_mode: string | null }[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState("");
+  const [regFeeSettings, setRegFeeSettings] = useState<Map<string, string>>(new Map());
+
+  // Same reasoning for certificates: a certificate payment must identify
+  // WHICH certificate it's for (a student can have more than one), and
+  // there's no certificate_id column on payments — the confirmation
+  // trigger (see migrations) matches on payments.description formatted
+  // exactly as "Certificate collection — <number>", same as the
+  // dedicated Certificates page flow. Get this wrong and a confirmed
+  // payment silently fails to unlock the certificate.
+  const [unpaidCertificates, setUnpaidCertificates] = useState<UnpaidCertificateRow[]>([]);
+  const [selectedCertificateId, setSelectedCertificateId] = useState("");
+  const [certFeeSettings, setCertFeeSettings] = useState<Map<string, string>>(new Map());
+
   const selectedType = useMemo(() => PAYMENT_TYPES.find((t) => t.value === type)!, [type]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !profile) return;
     setError(null);
     setTransferClaimed(false);
     setMethod("paystack");
+    setSelectedProgramId("");
+    setSelectedCertificateId("");
     supabase
       .from("site_settings")
       .select("key, value")
-      .in("key", ["fee_reg_certificate", "fee_certificate", "paystack_public_key"])
+      .in("key", [
+        "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral",
+        "fee_reg_certificate_selfpaced", "fee_reg_diploma_selfpaced",
+        "fee_cert_certificate", "fee_cert_diploma", "fee_cert_pastoral",
+        "fee_cert_certificate_selfpaced", "fee_cert_diploma_selfpaced",
+        "fee_certificate", "paystack_public_key",
+      ])
       .then(({ data }) => {
         const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
-        // fee_reg_certificate is entered by the admin in Naira (see the
-        // "(₦)" label in Settings) — convert to its USD-equivalent since
-        // this modal's "Amount (USD)" field, and the Paystack charge it
-        // feeds, are both USD-based. fee_certificate is already USD, so
-        // it's left as-is.
-        const feeRegNgn = Number(map.get("fee_reg_certificate") ?? 10000);
-        setFees({
-          // Registration fees are now per-programme-type and tied to a
-          // specific course (see the registration gate on CourseDetail).
-          // This generic modal only covers the Certificate-track default
-          // for a standalone registration payment made outside that flow.
-          fee_registration: exchangeRate ? feeRegNgn / exchangeRate : feeRegNgn,
-          fee_certificate: Number(map.get("fee_certificate") ?? 0),
-        });
-        setFixedNgn({ fee_registration: feeRegNgn });
+        setRegFeeSettings(map);
+        setCertFeeSettings(map);
         setPublicKey(map.get("paystack_public_key") ?? "");
+        setFees(f => ({ ...f, fee_certificate: Number(map.get("fee_certificate") ?? 0) }));
       });
     supabase
       .from("bank_accounts")
@@ -84,7 +113,77 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
       .eq("is_active", true)
       .order("sort_order")
       .then(({ data }) => setBankAccounts((data ?? []) as BankAccount[]));
-  }, [open, exchangeRate]);
+
+    // Only programmes this student hasn't already paid registration for —
+    // no point offering one that's already unlocked.
+    (async () => {
+      const [{ data: enrData }, { data: payData }, { data: certData }, { data: certPayData }] = await Promise.all([
+        supabase.from("enrollments").select("program_id, programs:program_id(id, title, title_fr, type, delivery_mode)").eq("student_id", profile.id),
+        supabase.from("payments").select("program_id, status, manual_confirmed").eq("student_id", profile.id).eq("type", "registration").not("program_id", "is", null),
+        supabase.from("certificates").select("id, certificate_number, program_id, programs:program_id(title, title_fr, type, delivery_mode)").eq("student_id", profile.id).eq("is_paid", false),
+        supabase.from("payments").select("description, status, manual_confirmed").eq("student_id", profile.id).eq("type", "certificate"),
+      ]);
+      const paidIds = new Set((payData ?? []).filter((p: { status: string; manual_confirmed: boolean }) => p.status === "success" || p.manual_confirmed).map((p: { program_id: string }) => p.program_id));
+      const seen = new Map<string, { id: string; title: string; title_fr: string | null; type: string; delivery_mode: string | null }>();
+      // Supabase infers embedded to-one relations as arrays in its
+      // generated types unless the FK is disambiguated in the select —
+      // cast once to the shape it actually returns at runtime (a single
+      // object per row, since program_id is a many-to-one FK) rather than
+      // fighting that inferred array type inline.
+      ((enrData ?? []) as unknown as EnrollmentProgramRow[]).forEach(e => {
+        if (e.programs && e.program_id && !paidIds.has(e.program_id) && !seen.has(e.program_id)) seen.set(e.program_id, e.programs);
+      });
+      setUnpaidPrograms(Array.from(seen.values()));
+
+      // A certificate already has a *pending* claim if some payment's
+      // description matches its "Certificate collection — <number>"
+      // string — don't offer it again to avoid a second overlapping claim.
+      const pendingDescriptions = new Set(
+        (certPayData ?? [])
+          .filter((p: { status: string; manual_confirmed: boolean }) => p.status === "pending" && !p.manual_confirmed)
+          .map((p: { description: string | null }) => p.description)
+      );
+      setUnpaidCertificates(
+        ((certData ?? []) as unknown as UnpaidCertificateRow[])
+          .filter(c => !pendingDescriptions.has(`Certificate collection — ${c.certificate_number}`))
+      );
+    })();
+  }, [open, profile]);
+
+  // Resolves the correct registration fee (NGN) for whichever programme is
+  // currently selected — by type, and self-paced variant where applicable
+  // (Pastoral never is).
+  const selectedProgram = unpaidPrograms.find(p => p.id === selectedProgramId);
+  const selectedProgramFeeNgn = (() => {
+    if (!selectedProgram) return Number(regFeeSettings.get("fee_reg_certificate") ?? 10000);
+    const baseKey = selectedProgram.type === "diploma" ? "fee_reg_diploma" : selectedProgram.type === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
+    const selfPaced = selectedProgram.delivery_mode === "self_paced";
+    const key = selfPaced && baseKey !== "fee_reg_pastoral" ? `${baseKey}_selfpaced` : baseKey;
+    return Number(regFeeSettings.get(key) ?? regFeeSettings.get(baseKey) ?? (baseKey === "fee_reg_certificate" ? 10000 : 0));
+  })();
+
+  useEffect(() => {
+    if (type !== "registration") return;
+    setFixedNgn(f => ({ ...f, fee_registration: selectedProgramFeeNgn }));
+    setFees(f => ({ ...f, fee_registration: exchangeRate ? selectedProgramFeeNgn / exchangeRate : selectedProgramFeeNgn }));
+  }, [type, selectedProgramFeeNgn, exchangeRate]);
+
+  // Same resolution for the selected certificate's fee.
+  const selectedCertificate = unpaidCertificates.find(c => c.id === selectedCertificateId);
+  const selectedCertificateFeeNgn = (() => {
+    const prog = selectedCertificate?.programs;
+    if (!prog) return Number(certFeeSettings.get("fee_certificate") ?? 0);
+    const baseKey = prog.type === "diploma" ? "fee_cert_diploma" : prog.type === "pastoral" ? "fee_cert_pastoral" : "fee_cert_certificate";
+    const selfPaced = prog.delivery_mode === "self_paced";
+    const key = selfPaced && baseKey !== "fee_cert_pastoral" ? `${baseKey}_selfpaced` : baseKey;
+    return Number(certFeeSettings.get(key) ?? certFeeSettings.get(baseKey) ?? 0);
+  })();
+
+  useEffect(() => {
+    if (type !== "certificate") return;
+    setFixedNgn(f => ({ ...f, fee_certificate: selectedCertificateFeeNgn }));
+    setFees(f => ({ ...f, fee_certificate: exchangeRate ? selectedCertificateFeeNgn / exchangeRate : selectedCertificateFeeNgn }));
+  }, [type, selectedCertificateFeeNgn, exchangeRate]);
 
   // Pre-fill (and lock) the amount for fixed-fee types.
   useEffect(() => {
@@ -115,8 +214,15 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
     }
   };
 
+  const needsProgram = type === "registration";
+  const needsCertificate = type === "certificate";
+  const canSubmit = amountValid && (!needsProgram || !!selectedProgramId) && (!needsCertificate || !!selectedCertificateId);
+  const certDescription = selectedCertificate ? `Certificate collection — ${selectedCertificate.certificate_number}` : undefined;
+
   const onPayOnline = async () => {
     if (!amountValid) { setError(lang === "en" ? "Enter a valid amount." : "Entrez un montant valide."); return; }
+    if (needsProgram && !selectedProgramId) { setError(lang === "en" ? "Select which programme this registration is for." : "Sélectionnez le programme concerné."); return; }
+    if (needsCertificate && !selectedCertificateId) { setError(lang === "en" ? "Select which certificate this fee is for." : "Sélectionnez le certificat concerné."); return; }
     if (!publicKey) { setError(lang === "en" ? "Online payments are not configured yet. Please use bank transfer or contact finance." : "Les paiements en ligne ne sont pas encore configurés. Utilisez le virement bancaire."); return; }
     setSubmitting(true);
     setError(null);
@@ -129,6 +235,8 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
         studentId: profile.id,
         paymentType: type,
         publicKey,
+        programId: needsProgram ? selectedProgramId : undefined,
+        description: needsCertificate ? certDescription : undefined,
       });
       if (result.status === "success") {
         showToast("success", lang === "en" ? "Payment successful! Your receipt is ready." : "Paiement réussi ! Votre reçu est prêt.");
@@ -150,6 +258,8 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
 
   const onClaimTransfer = async () => {
     if (!amountValid) { setError(lang === "en" ? "Enter a valid amount." : "Entrez un montant valide."); return; }
+    if (needsProgram && !selectedProgramId) { setError(lang === "en" ? "Select which programme this registration is for." : "Sélectionnez le programme concerné."); return; }
+    if (needsCertificate && !selectedCertificateId) { setError(lang === "en" ? "Select which certificate this fee is for." : "Sélectionnez le certificat concerné."); return; }
     setSubmitting(true);
     setError(null);
     try {
@@ -167,6 +277,8 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
         method: "bank_transfer",
         status: "pending",
         reference,
+        program_id: needsProgram ? selectedProgramId : null,
+        description: needsCertificate ? certDescription : null,
       });
       if (insErr) throw insErr;
       setTransferClaimed(true);
@@ -205,6 +317,47 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
               ))}
             </select>
           </div>
+
+          {type === "registration" && (
+            <div>
+              <label className="label">{lang === "en" ? "Programme" : "Programme"}</label>
+              {unpaidPrograms.length === 0 ? (
+                <p className="text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+                  {lang === "en" ? "You have no programmes awaiting registration payment." : "Aucun programme en attente de paiement d'inscription."}
+                </p>
+              ) : (
+                <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)} className="input">
+                  <option value="">{lang === "en" ? "Select a programme…" : "Sélectionner un programme…"}</option>
+                  {unpaidPrograms.map(p => (
+                    <option key={p.id} value={p.id}>{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</option>
+                  ))}
+                </select>
+              )}
+              <p className="text-xs text-gray-400 mt-1">
+                {lang === "en" ? "This one payment unlocks every course under the selected programme." : "Ce paiement unique déverrouille tous les cours du programme sélectionné."}
+              </p>
+            </div>
+          )}
+
+          {type === "certificate" && (
+            <div>
+              <label className="label">{lang === "en" ? "Certificate" : "Certificat"}</label>
+              {unpaidCertificates.length === 0 ? (
+                <p className="text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+                  {lang === "en" ? "You have no certificates awaiting payment." : "Aucun certificat en attente de paiement."}
+                </p>
+              ) : (
+                <select value={selectedCertificateId} onChange={(e) => setSelectedCertificateId(e.target.value)} className="input">
+                  <option value="">{lang === "en" ? "Select a certificate…" : "Sélectionner un certificat…"}</option>
+                  {unpaidCertificates.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.certificate_number} — {c.programs ? ((lang === "fr" && c.programs.title_fr) ? c.programs.title_fr : c.programs.title) : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="label">{lang === "en" ? "Amount (USD)" : "Montant (USD)"}</label>
@@ -286,12 +439,12 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
           {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
 
           {method === "paystack" ? (
-            <button onClick={onPayOnline} disabled={submitting || !amountValid} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
+            <button onClick={onPayOnline} disabled={submitting || !canSubmit} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <CreditCard className="w-4 h-4" strokeWidth={2} />}
               {submitting ? (lang === "en" ? "Processing…" : "Traitement…") : (lang === "en" ? "Pay Online" : "Payer en Ligne")}
             </button>
           ) : (
-            <button onClick={onClaimTransfer} disabled={submitting || !amountValid || displayAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
+            <button onClick={onClaimTransfer} disabled={submitting || !canSubmit || displayAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <Check className="w-4 h-4" strokeWidth={2} />}
               {lang === "en" ? "I've Made the Transfer" : "J'ai Effectué le Virement"}
             </button>

@@ -44,7 +44,7 @@ interface EnrolledProgram {
 
 /* ── Quick links ── */
 const QUICK_LINKS = [
-  { to: "/student/courses",      labelEn: "My Courses",   labelFr: "Mes Cours",       icon: BookOpen },
+  { to: "/student/courses",      labelEn: "My Programmes", labelFr: "Mes Programmes",  icon: BookOpen },
   { to: "/student/assessments",  labelEn: "Assessments",  labelFr: "Évaluations",     icon: PencilLine },
   { to: "/student/results",      labelEn: "Results",      labelFr: "Résultats",       icon: BarChart3 },
   { to: "/student/library",      labelEn: "Library",      labelFr: "Bibliothèque",    icon: FolderOpen },

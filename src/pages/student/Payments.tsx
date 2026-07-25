@@ -30,6 +30,7 @@ interface Payment {
   paid_at: string | null;
   created_at: string;
   course_id: string | null;
+  program_id: string | null;
   material_id: string | null;
 }
 
@@ -82,19 +83,34 @@ export default function StudentPayments() {
 
   const loadProgramTitles = async (rows: Payment[]) => {
     const courseIds = Array.from(new Set(rows.map(p => p.course_id).filter((id): id is string => !!id)));
-    if (courseIds.length === 0) return;
-    const { data: courses } = await supabase.from("courses").select("id, title, title_fr, program_id").in("id", courseIds);
-    if (!courses) return;
+    // Registration payments now carry program_id directly (a single
+    // payment covers every course under the programme) — resolve those
+    // straight from programs, no need to go through a course at all.
+    const directProgramIds = Array.from(new Set(rows.map(p => p.program_id).filter((id): id is string => !!id)));
+
+    const [coursesRes, directProgramsRes] = await Promise.all([
+      courseIds.length ? supabase.from("courses").select("id, title, title_fr, program_id").in("id", courseIds) : Promise.resolve({ data: [] as { id: string; title: string; title_fr: string | null; program_id: string | null }[] }),
+      directProgramIds.length ? supabase.from("programs").select("id, title, title_fr").in("id", directProgramIds) : Promise.resolve({ data: [] as { id: string; title: string; title_fr: string | null }[] }),
+    ]);
+    const courses = coursesRes.data ?? [];
     const programIds = Array.from(new Set(courses.map((c: { program_id: string | null }) => c.program_id).filter((id): id is string => !!id)));
-    const { data: programs } = programIds.length
+    const { data: programsViaCourses } = programIds.length
       ? await supabase.from("programs").select("id, title, title_fr").in("id", programIds)
       : { data: [] as { id: string; title: string; title_fr: string | null }[] };
-    const programMap = new Map((programs ?? []).map((pr: { id: string; title: string; title_fr: string | null }) => [pr.id, pr]));
+    const programMap = new Map([...(programsViaCourses ?? []), ...(directProgramsRes.data ?? [])].map((pr: { id: string; title: string; title_fr: string | null }) => [pr.id, pr]));
+
     const map: Record<string, string> = {};
     (courses as { id: string; title: string; title_fr: string | null; program_id: string | null }[]).forEach(c => {
       const program = c.program_id ? programMap.get(c.program_id) : null;
       const title = program ? ((lang === "fr" && program.title_fr) || program.title) : ((lang === "fr" && c.title_fr) || c.title);
       map[c.id] = title;
+    });
+    // Also key the map by program_id directly, so the receipt lookup
+    // below (keyed on either course_id or program_id, whichever the
+    // payment row actually has) finds a title either way.
+    directProgramIds.forEach(pid => {
+      const program = programMap.get(pid);
+      if (program) map[pid] = (lang === "fr" && program.title_fr) || program.title;
     });
     setProgramTitles(map);
   };
@@ -135,10 +151,10 @@ export default function StudentPayments() {
   const unlockMaterialId = searchParams.get('unlock');
   const unlockTitle = searchParams.get('title');
   const unlockPrice = searchParams.get('price');
-  const registerCourseId = searchParams.get('registerCourse');
+  const registerProgramId = searchParams.get('registerProgram');
   const registerAmount = searchParams.get('amount');
   const registerAmountNgn = searchParams.get('amountNgn');
-  const registerCourseTitle = searchParams.get('courseTitle');
+  const registerProgramTitle = searchParams.get('programTitle');
   // Certificate collection fee — student lands here from the "Request
   // Certificate" button on the Certificates page instead of that page
   // silently inserting its own pending bank-transfer row (which had no
@@ -147,13 +163,26 @@ export default function StudentPayments() {
   // what actually prevents the double-payment problem.
   const certificateId = searchParams.get('certificateId');
   const certNumber = searchParams.get('certNumber');
-  const certAmount = searchParams.get('certAmount');
+  // Certificate fees are NGN-native (set directly in Naira by the admin,
+  // per programme type and self-paced status — see admin Settings), same
+  // as registration fees already are. Not a USD figure to convert.
+  const certAmountNgn = searchParams.get('certAmountNgn');
 
-  const isRegisterFlow = !!registerCourseId;
+  const { exchangeRate, currency } = useCurrency();
+
+  const isRegisterFlow = !!registerProgramId;
   const isCertificateFlow = !isRegisterFlow && !!certificateId;
-  const bannerItemId = unlockMaterialId ?? registerCourseId ?? (isCertificateFlow ? certificateId : null);
-  const bannerTitle = isRegisterFlow ? registerCourseTitle : isCertificateFlow ? certNumber : unlockTitle;
-  const bannerAmountUsd = Number((isRegisterFlow ? registerAmount : isCertificateFlow ? certAmount : unlockPrice) ?? 0);
+  const bannerItemId = unlockMaterialId ?? registerProgramId ?? (isCertificateFlow ? certificateId : null);
+  const bannerTitle = isRegisterFlow ? registerProgramTitle : isCertificateFlow ? certNumber : unlockTitle;
+  // The certificate flow has no USD figure at all — its fee is set
+  // directly in Naira. bannerAmountUsd here is only ever a rough display
+  // estimate for students not viewing in NGN; bannerAmountNgn (below) is
+  // what's actually charged/recorded regardless of display currency.
+  const bannerAmountUsd = Number(
+    isRegisterFlow ? (registerAmount ?? 0)
+    : isCertificateFlow ? (certAmountNgn && exchangeRate ? Number(certAmountNgn) / exchangeRate : 0)
+    : (unlockPrice ?? 0)
+  );
   // The exact string stored on the payments row's `description` for a
   // certificate fee — there's no dedicated certificate_id column on
   // `payments`, so this is how we recognise "a payment for *this*
@@ -162,15 +191,15 @@ export default function StudentPayments() {
   // between requesting and revisiting this page would fail to match
   // their own existing payment and could pay twice.
   const certDescription = certNumber ? `Certificate collection — ${decodeURIComponent(certNumber)}` : null;
-  // Registration fees are configured by the admin in exact Naira — use
-  // that figure directly for the charge/record. Never recompute it via
-  // amountUsd * exchangeRate, which introduces rounding drift (e.g. an
-  // admin-set ₦5,000 fee turning into ₦5,008 on the payment record).
-  const bannerAmountNgn = isRegisterFlow && registerAmountNgn
-    ? Number(registerAmountNgn)
+  // Registration and certificate fees are both configured by the admin in
+  // exact Naira — use that figure directly for the charge/record. Never
+  // recompute it via amountUsd * exchangeRate, which introduces rounding
+  // drift (e.g. an admin-set ₦5,000 fee turning into ₦5,008 on the record).
+  const bannerAmountNgn =
+    isRegisterFlow && registerAmountNgn ? Number(registerAmountNgn)
+    : isCertificateFlow && certAmountNgn ? Number(certAmountNgn)
     : null;
 
-  const { exchangeRate, currency } = useCurrency();
   // Same exact-NGN preference as fmtAmount, applied to the pre-payment
   // banner (uses bannerAmountNgn since that payment row doesn't exist yet).
   const fmtBannerAmount = () =>
@@ -192,7 +221,7 @@ export default function StudentPayments() {
   const existingBannerPayment = bannerItemId
     ? payments.find(p =>
         (p.status === "pending" || p.status === "success") &&
-        (isRegisterFlow ? p.course_id === registerCourseId && p.type === "registration"
+        (isRegisterFlow ? p.program_id === registerProgramId && p.type === "registration"
          : isCertificateFlow ? p.description === certDescription && p.type === "certificate"
          : p.material_id === unlockMaterialId)
       ) ?? null
@@ -238,7 +267,8 @@ export default function StudentPayments() {
         studentId: profile.id,
         paymentType: isRegisterFlow ? "registration" : isCertificateFlow ? "certificate" : "material",
         publicKey,
-        courseId: isRegisterFlow ? registerCourseId! : undefined,
+        courseId: undefined,
+        programId: isRegisterFlow ? registerProgramId! : undefined,
         description: isCertificateFlow ? certDescription ?? undefined : undefined,
       });
       if (result.status === "success") {
@@ -274,12 +304,13 @@ export default function StudentPayments() {
       method: 'bank_transfer',
       transfer_reference: transferRef.trim(),
       material_id: (isRegisterFlow || isCertificateFlow) ? null : unlockMaterialId,
-      course_id: isRegisterFlow ? registerCourseId : null,
+      course_id: null,
+      program_id: isRegisterFlow ? registerProgramId : null,
       description: isCertificateFlow
         ? (certDescription ?? 'Certificate collection')
         : (bannerTitle
             ? `${isRegisterFlow ? 'Registration' : 'Unlock'}: ${decodeURIComponent(bannerTitle)}`
-            : (isRegisterFlow ? 'Course registration' : 'Premium material')),
+            : (isRegisterFlow ? 'Programme registration' : 'Premium material')),
     });
     if (error) {
       showToast('error', error.message);
@@ -317,7 +348,7 @@ export default function StudentPayments() {
             <div>
               <p className="text-xs font-bold text-brand uppercase tracking-wider mb-1">
                 {isRegisterFlow
-                  ? (lang === "en" ? "Course Registration Required" : "Inscription au Cours Requise")
+                  ? (lang === "en" ? "Programme Registration Required" : "Inscription au Programme Requise")
                   : isCertificateFlow
                     ? (lang === "en" ? "Certificate Collection Fee" : "Frais de Retrait de Certificat")
                     : (lang === "en" ? "Unlock Premium Material" : "Débloquer le Contenu Premium")}
@@ -505,7 +536,11 @@ export default function StudentPayments() {
           onClose={() => setReceiptFor(null)}
           payment={receiptFor}
           studentName={profile.full_name}
-          programTitle={receiptFor.course_id ? (programTitles[receiptFor.course_id] ?? null) : null}
+          programTitle={
+            receiptFor.course_id ? (programTitles[receiptFor.course_id] ?? null)
+            : receiptFor.program_id ? (programTitles[receiptFor.program_id] ?? null)
+            : null
+          }
           lang={lang}
         />
       )}

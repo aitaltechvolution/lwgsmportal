@@ -14,6 +14,14 @@ import { useToast } from "@/contexts/ToastContext";
 import CertificatePreviewModal from "@/components/CertificatePreviewModal";
 import { CertificateData } from "@/components/CertificateCard";
 
+// #9: surfaces each student's delivery mode ("type") on the eligibility
+// tables — same labels/colors used on the Students page.
+const DELIVERY_MODE_LABEL: Record<string, { en: string; fr: string; color: "blue" | "green" | "yellow" }> = {
+  online:     { en: "Online",     fr: "En Ligne",  color: "blue" },
+  onsite:     { en: "Onsite",     fr: "Sur Site",   color: "green" },
+  self_paced: { en: "Self-Paced", fr: "Autonome",   color: "yellow" },
+};
+
 interface EligibleRow {
   student_id: string;
   program_id: string;
@@ -28,7 +36,7 @@ interface EligibleRow {
   is_eligible: boolean;
   already_issued: boolean;
   profiles?: { full_name: string; email: string } | null;
-  programs?: { title: string; title_fr: string | null } | null;
+  programs?: { title: string; title_fr: string | null; delivery_mode?: "online" | "onsite" | "self_paced" } | null;
 }
 
 interface Cert {
@@ -76,7 +84,7 @@ export default function AdminCertificates() {
     const [allCandidatesRes, certRes] = await Promise.all([
       supabase
         .from("certificate_eligibility")
-        .select("*, profiles:student_id(full_name, email), programs:program_id(title, title_fr)")
+        .select("*, profiles:student_id(full_name, email), programs:program_id(title, title_fr, delivery_mode)")
         .eq("already_issued", false),
       supabase
         .from("certificates")
@@ -270,7 +278,7 @@ export default function AdminCertificates() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50/60 border-b border-gray-100">
-                    {[lang === "en" ? "Student" : "Étudiant", lang === "en" ? "Program" : "Programme", lang === "en" ? "Courses" : "Cours", lang === "en" ? "Attendance" : "Présence", ""].map(h => (
+                    {[lang === "en" ? "Student" : "Étudiant", lang === "en" ? "Program" : "Programme", lang === "en" ? "Type" : "Type", lang === "en" ? "Courses" : "Cours", lang === "en" ? "Attendance" : "Présence", ""].map(h => (
                       <th key={h} className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -283,6 +291,15 @@ export default function AdminCertificates() {
                       <tr key={key} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-5 py-3.5"><p className="font-semibold text-ink">{row.profiles?.full_name ?? "—"}</p><p className="text-xs text-gray-400">{row.profiles?.email}</p></td>
                         <td className="px-5 py-3.5 text-ink">{progTitle}</td>
+                        <td className="px-5 py-3.5">
+                          {row.programs?.delivery_mode
+                            ? <Badge color={row.programs.delivery_mode === "online" ? "blue" : row.programs.delivery_mode === "onsite" ? "green" : "yellow"}>
+                                {lang === "fr"
+                                  ? (row.programs.delivery_mode === "online" ? "En Ligne" : row.programs.delivery_mode === "onsite" ? "Sur Site" : "Autonome")
+                                  : (row.programs.delivery_mode === "online" ? "Online" : row.programs.delivery_mode === "onsite" ? "Onsite" : "Self-Paced")}
+                              </Badge>
+                            : <span className="text-xs text-gray-400">—</span>}
+                        </td>
                         <td className="px-5 py-3.5"><Badge color="green" icon={CheckCircle2}>{row.published_courses}/{row.total_courses} {lang === "en" ? "published" : "publiées"}</Badge></td>
                         <td className="px-5 py-3.5">
                           {row.attendance_pct === null
@@ -324,6 +341,7 @@ export default function AdminCertificates() {
                   <tr className="bg-gray-50/60 border-b border-gray-100">
                     {[
                       lang === "en" ? "Student" : "Étudiant", lang === "en" ? "Program" : "Programme",
+                      lang === "en" ? "Type" : "Type",
                       lang === "en" ? "Courses" : "Cours", lang === "en" ? "Materials" : "Ressources",
                       lang === "en" ? "Assessments" : "Évaluations", lang === "en" ? "Attendance" : "Présence", "",
                     ].map(h => (
@@ -339,6 +357,15 @@ export default function AdminCertificates() {
                       <tr key={key} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-5 py-3.5"><p className="font-semibold text-ink">{row.profiles?.full_name ?? "—"}</p><p className="text-xs text-gray-400">{row.profiles?.email}</p></td>
                         <td className="px-5 py-3.5 text-ink">{progTitle}</td>
+                        <td className="px-5 py-3.5">
+                          {row.programs?.delivery_mode
+                            ? <Badge color={row.programs.delivery_mode === "online" ? "blue" : row.programs.delivery_mode === "onsite" ? "green" : "yellow"}>
+                                {lang === "fr"
+                                  ? (row.programs.delivery_mode === "online" ? "En Ligne" : row.programs.delivery_mode === "onsite" ? "Sur Site" : "Autonome")
+                                  : (row.programs.delivery_mode === "online" ? "Online" : row.programs.delivery_mode === "onsite" ? "Onsite" : "Self-Paced")}
+                              </Badge>
+                            : <span className="text-xs text-gray-400">—</span>}
+                        </td>
                         <td className="px-5 py-3.5"><Badge color={row.published_courses === row.total_courses ? "green" : "orange"}>{row.published_courses}/{row.total_courses} {lang === "en" ? "published" : "publiées"}</Badge></td>
                         <td className="px-5 py-3.5">
                           {row.materials_pct === null

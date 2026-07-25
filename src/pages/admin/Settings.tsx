@@ -60,7 +60,13 @@ export default function AdminSettings() {
   const [feeRegCertificate, setFeeRegCertificate] = useState("");
   const [feeRegDiploma, setFeeRegDiploma] = useState("");
   const [feeRegPastoral, setFeeRegPastoral] = useState("");
-  const [feeCertificate, setFeeCertificate] = useState("");
+  const [feeRegCertificateSelfPaced, setFeeRegCertificateSelfPaced] = useState("");
+  const [feeRegDiplomaSelfPaced, setFeeRegDiplomaSelfPaced] = useState("");
+  const [feeCertCertificate, setFeeCertCertificate] = useState("");
+  const [feeCertDiploma, setFeeCertDiploma] = useState("");
+  const [feeCertPastoral, setFeeCertPastoral] = useState("");
+  const [feeCertCertificateSelfPaced, setFeeCertCertificateSelfPaced] = useState("");
+  const [feeCertDiplomaSelfPaced, setFeeCertDiplomaSelfPaced] = useState("");
   const [paymentSettingsSaving, setPaymentSettingsSaving] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [bankAccountsLoading, setBankAccountsLoading] = useState(true);
@@ -91,7 +97,10 @@ export default function AdminSettings() {
 
   useEffect(() => {
     supabase.from("site_settings").select("key, value").in("key", [
-      "paystack_public_key", "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral", "fee_certificate",
+      "paystack_public_key", "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral",
+      "fee_reg_certificate_selfpaced", "fee_reg_diploma_selfpaced",
+      "fee_cert_certificate", "fee_cert_diploma", "fee_cert_pastoral",
+      "fee_cert_certificate_selfpaced", "fee_cert_diploma_selfpaced",
       "school_name_en", "school_name_fr", "school_tagline_en", "school_tagline_fr",
       "notify_new_enrollment", "notify_payment_received", "notify_certificate_issued", "notify_sms_enabled",
       "min_attendance_pct", "account_verification_redirect_url",
@@ -101,7 +110,13 @@ export default function AdminSettings() {
       setFeeRegCertificate(map.get("fee_reg_certificate") ?? "10000");
       setFeeRegDiploma(map.get("fee_reg_diploma") ?? "");
       setFeeRegPastoral(map.get("fee_reg_pastoral") ?? "");
-      setFeeCertificate(map.get("fee_certificate") ?? "");
+      setFeeRegCertificateSelfPaced(map.get("fee_reg_certificate_selfpaced") ?? "");
+      setFeeRegDiplomaSelfPaced(map.get("fee_reg_diploma_selfpaced") ?? "");
+      setFeeCertCertificate(map.get("fee_cert_certificate") ?? "");
+      setFeeCertDiploma(map.get("fee_cert_diploma") ?? "");
+      setFeeCertPastoral(map.get("fee_cert_pastoral") ?? "");
+      setFeeCertCertificateSelfPaced(map.get("fee_cert_certificate_selfpaced") ?? "");
+      setFeeCertDiplomaSelfPaced(map.get("fee_cert_diploma_selfpaced") ?? "");
       setSchoolNameEn(map.get("school_name_en") ?? "Living Waters Global School of Ministry");
       setSchoolNameFr(map.get("school_name_fr") ?? "École Mondiale du Ministère des Eaux Vives");
       setTaglineEn(map.get("school_tagline_en") ?? "");
@@ -262,7 +277,13 @@ export default function AdminSettings() {
         { key: "fee_reg_certificate", value: feeRegCertificate || "10000" },
         { key: "fee_reg_diploma", value: feeRegDiploma || "0" },
         { key: "fee_reg_pastoral", value: feeRegPastoral || "0" },
-        { key: "fee_certificate", value: feeCertificate || "0" },
+        { key: "fee_reg_certificate_selfpaced", value: feeRegCertificateSelfPaced || "0" },
+        { key: "fee_reg_diploma_selfpaced", value: feeRegDiplomaSelfPaced || "0" },
+        { key: "fee_cert_certificate", value: feeCertCertificate || "0" },
+        { key: "fee_cert_diploma", value: feeCertDiploma || "0" },
+        { key: "fee_cert_pastoral", value: feeCertPastoral || "0" },
+        { key: "fee_cert_certificate_selfpaced", value: feeCertCertificateSelfPaced || "0" },
+        { key: "fee_cert_diploma_selfpaced", value: feeCertDiplomaSelfPaced || "0" },
       ];
       const { error } = await supabase.from("site_settings").upsert(updates.map(u => ({ ...u, updated_at: new Date().toISOString() })));
       if (error) throw error;
@@ -430,25 +451,79 @@ export default function AdminSettings() {
                   : "Clé publique uniquement — ne collez jamais une clé secrète ici."}
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="label">{lang === "en" ? "Certificate Programme — Registration Fee (₦)" : "Programme Certificat — Frais d'Inscription (₦)"}</label>
-                <input type="number" min="0" step="0.01" value={feeRegCertificate} onChange={e => setFeeRegCertificate(e.target.value)} className="input" />
-                <p className="text-xs text-gray-400 mt-1">{lang === "en" ? "Default ₦10,000, applies to every Certificate programme." : "Par défaut ₦10 000, s'applique à tous les programmes Certificat."}</p>
+            <div>
+              <p className="text-xs font-bold text-slate uppercase tracking-wider mb-2">
+                {lang === "en" ? "Registration Fees (₦)" : "Frais d'Inscription (₦)"}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="label">{lang === "en" ? "Certificate Programme" : "Programme Certificat"}</label>
+                  <input type="number" min="0" step="0.01" value={feeRegCertificate} onChange={e => setFeeRegCertificate(e.target.value)} className="input" />
+                  <p className="text-xs text-gray-400 mt-1">{lang === "en" ? "Default ₦10,000, applies to every Certificate programme." : "Par défaut ₦10 000, s'applique à tous les programmes Certificat."}</p>
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Diploma Programme" : "Programme Diplôme"}</label>
+                  <input type="number" min="0" step="0.01" value={feeRegDiploma} onChange={e => setFeeRegDiploma(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Pastoral Ordination & Licensing" : "Ordination et Licence Pastorale"}</label>
+                  <input type="number" min="0" step="0.01" value={feeRegPastoral} onChange={e => setFeeRegPastoral(e.target.value)} className="input" />
+                </div>
               </div>
-              <div>
-                <label className="label">{lang === "en" ? "Diploma Programme — Registration Fee (₦)" : "Programme Diplôme — Frais d'Inscription (₦)"}</label>
-                <input type="number" min="0" step="0.01" value={feeRegDiploma} onChange={e => setFeeRegDiploma(e.target.value)} className="input" />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                <div>
+                  <label className="label">{lang === "en" ? "Certificate — Self-Paced" : "Certificat — Autonome"}</label>
+                  <input type="number" min="0" step="0.01" value={feeRegCertificateSelfPaced} onChange={e => setFeeRegCertificateSelfPaced(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Diploma — Self-Paced" : "Diplôme — Autonome"}</label>
+                  <input type="number" min="0" step="0.01" value={feeRegDiplomaSelfPaced} onChange={e => setFeeRegDiplomaSelfPaced(e.target.value)} className="input" />
+                </div>
+                <div className="flex items-end">
+                  <p className="text-xs text-gray-400">
+                    {lang === "en" ? "Pastoral has no self-paced option." : "Le Pastoral n'a pas d'option autonome."}
+                  </p>
+                </div>
               </div>
-              <div>
-                <label className="label">{lang === "en" ? "Pastoral Ordination & Licensing — Registration Fee (₦)" : "Ordination et Licence Pastorale — Frais d'Inscription (₦)"}</label>
-                <input type="number" min="0" step="0.01" value={feeRegPastoral} onChange={e => setFeeRegPastoral(e.target.value)} className="input" />
-              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                {lang === "en"
+                  ? "A self-paced programme uses these amounts instead of the standard ones above, when set above ₦0."
+                  : "Un programme autonome utilise ces montants à la place des montants standards ci-dessus, s'ils sont supérieurs à ₦0."}
+              </p>
             </div>
-            <div className="mt-4">
-              <div>
-                <label className="label">{lang === "en" ? "Certificate Fee (USD)" : "Frais de Certificat (USD)"}</label>
-                <input type="number" min="0" step="0.01" value={feeCertificate} onChange={e => setFeeCertificate(e.target.value)} className="input" />
+
+            <div className="mt-2">
+              <p className="text-xs font-bold text-slate uppercase tracking-wider mb-2">
+                {lang === "en" ? "Certificate Fees (₦)" : "Frais de Certificat (₦)"}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="label">{lang === "en" ? "Certificate Programme" : "Programme Certificat"}</label>
+                  <input type="number" min="0" step="0.01" value={feeCertCertificate} onChange={e => setFeeCertCertificate(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Diploma Programme" : "Programme Diplôme"}</label>
+                  <input type="number" min="0" step="0.01" value={feeCertDiploma} onChange={e => setFeeCertDiploma(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Pastoral Ordination & Licensing" : "Ordination et Licence Pastorale"}</label>
+                  <input type="number" min="0" step="0.01" value={feeCertPastoral} onChange={e => setFeeCertPastoral(e.target.value)} className="input" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                <div>
+                  <label className="label">{lang === "en" ? "Certificate — Self-Paced" : "Certificat — Autonome"}</label>
+                  <input type="number" min="0" step="0.01" value={feeCertCertificateSelfPaced} onChange={e => setFeeCertCertificateSelfPaced(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="label">{lang === "en" ? "Diploma — Self-Paced" : "Diplôme — Autonome"}</label>
+                  <input type="number" min="0" step="0.01" value={feeCertDiplomaSelfPaced} onChange={e => setFeeCertDiplomaSelfPaced(e.target.value)} className="input" />
+                </div>
+                <div className="flex items-end">
+                  <p className="text-xs text-gray-400">
+                    {lang === "en" ? "Pastoral has no self-paced option." : "Le Pastoral n'a pas d'option autonome."}
+                  </p>
+                </div>
               </div>
             </div>
             <button type="submit" disabled={paymentSettingsSaving} className="btn-primary w-full py-2.5 disabled:opacity-60 disabled:translate-y-0">

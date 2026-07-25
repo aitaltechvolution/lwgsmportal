@@ -27,7 +27,7 @@ export default function StudentLayout({ children, title, breadcrumbs }: Props) {
 
   const NAV_ITEMS: PortalNavItem[] = [
     { to: "/student",              label: "Dashboard",    fr: "Tableau de bord",  icon: LayoutGrid,  end: true },
-    { to: "/student/courses",      label: "My Courses",   fr: "Mes Cours",        icon: BookOpen },
+    { to: "/student/courses",      label: "My Programmes", fr: "Mes Programmes",   icon: BookOpen },
     { to: "/student/assessments",  label: "Assessments",  fr: "Évaluations",      icon: PencilLine },
     { to: "/student/results",      label: "Results",      fr: "Résultats",        icon: BarChart3 },
     { to: "/student/attendance",   label: "Attendance",   fr: "Présences",        icon: CalendarDays },
