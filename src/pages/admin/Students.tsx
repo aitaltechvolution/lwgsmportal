@@ -1,13 +1,13 @@
 import { useEffect, useState, FormEvent } from "react";
 import AdminLayout from "@/components/AdminLayout";
-import { supabase } from "@/lib/supabase";
+import { supabase, getFunctionErrorMessage } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import {
   Search, GraduationCap, Plus, Eye, Ban, Trash2, Loader2,
   CheckCircle2, MoreVertical, X,
 } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow, Modal } from "@/components/ui/primitives";
-import { COUNTRIES } from "@/lib/constants";
+import { COUNTRIES, COUNTRY_DIAL_CODES } from "@/lib/constants";
 import { useConfirm } from "@/contexts/ConfirmContext";
 import { useToast } from "@/contexts/ToastContext";
 
@@ -99,7 +99,7 @@ export default function AdminStudents() {
     .sort((a, b) =>
       sortBy === "name"
         ? a.full_name.localeCompare(b.full_name)
-        : new Date(a.created_at).getTime() - new Date(b.created_at).getTime() // order of application — oldest (first applicant) first
+        : new Date(b.created_at).getTime() - new Date(a.created_at).getTime() // order of application — latest (most recent applicant) first
     );
 
   const toggleSuspend = async (s: StudentRow) => {
@@ -122,10 +122,19 @@ export default function AdminStudents() {
     if (!ok) return;
     const prevList = students;
     setStudents(prev => prev.filter(x => x.id !== s.id));
-    const { error: delErr } = await supabase.from("profiles").delete().eq("id", s.id);
-    if (delErr) {
+    // Deleting only the `profiles` row (the old client-side delete) leaves
+    // a "zombie" auth.users record behind — Supabase Auth still thinks
+    // that email is registered, which later blocks the student from
+    // reapplying and from getting a fresh account at approval time. This
+    // edge function removes the auth user too (which cascades to remove
+    // the profile row automatically).
+    const { data, error: fnErr } = await supabase.functions.invoke("delete-account", {
+      body: { userId: s.id },
+    });
+    if (fnErr || data?.error) {
       setStudents(prevList);
-      showToast("error", lang === "en" ? `Could not delete: ${delErr.message}` : `Suppression impossible : ${delErr.message}`);
+      const msg = data?.error ?? await getFunctionErrorMessage(fnErr, "Could not delete student.");
+      showToast("error", lang === "en" ? `Could not delete: ${msg}` : `Suppression impossible : ${msg}`);
     } else {
       showToast("info", lang === "en" ? "Student account deleted." : "Compte étudiant supprimé.");
     }
@@ -156,7 +165,7 @@ export default function AdminStudents() {
     await supabase.from("profiles").update({
       full_name: form.full_name,
       role: "student",
-      phone: form.phone || null,
+      phone: form.phone ? `${COUNTRY_DIAL_CODES[form.country] ?? ""} ${form.phone}`.trim() : null,
       country: form.country || null,
       nationality: form.nationality || null,
     }).eq("id", data.user.id);
@@ -327,15 +336,26 @@ export default function AdminStudents() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="label">{lang === "en" ? "Phone" : "Téléphone"}</label>
-                <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input" />
-              </div>
-              <div>
-                <label className="label">{lang === "en" ? "Country" : "Pays"}</label>
-                <select value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} className="input">
-                  <option value="">{lang === "en" ? "Select…" : "Sélectionner…"}</option>
+                <label className="label">{lang === "en" ? "Country" : "Pays"} *</label>
+                <select required value={form.country}
+                  onChange={e => setForm(f => ({ ...f, country: e.target.value, phone: "" }))} className="input">
+                  <option value="" disabled>{lang === "en" ? "Select…" : "Sélectionner…"}</option>
                   {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="label">{lang === "en" ? "Phone" : "Téléphone"} *</label>
+                <div className="flex">
+                  {form.country && COUNTRY_DIAL_CODES[form.country] && (
+                    <span className="flex items-center px-3 border border-r-0 border-gray-200 rounded-l-xl bg-gray-50 text-sm text-gray-500 font-semibold">
+                      {COUNTRY_DIAL_CODES[form.country]}
+                    </span>
+                  )}
+                  <input type="tel" required disabled={!form.country}
+                    value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder={!form.country ? (lang === "en" ? "Select country first" : "Choisir un pays d'abord") : ""}
+                    className={`input ${form.country && COUNTRY_DIAL_CODES[form.country] ? "rounded-l-none" : ""} disabled:bg-gray-50 disabled:text-gray-400`} />
+                </div>
               </div>
             </div>
             <div>

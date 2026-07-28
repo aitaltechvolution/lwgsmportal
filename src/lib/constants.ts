@@ -54,6 +54,26 @@ export const COUNTRY_CODES: Record<string, string> = {
   "Other": "XX",
 };
 
+/** International calling codes for the COUNTRIES list above — used to
+ *  prefix the phone number field so numbers are stored in a consistent,
+ *  unambiguous format (e.g. +234 801 234 5678) instead of whatever the
+ *  applicant happened to type. */
+export const COUNTRY_DIAL_CODES: Record<string, string> = {
+  "Nigeria": "+234", "Ghana": "+233", "Kenya": "+254", "South Africa": "+27", "Cameroon": "+237",
+  "Benin": "+229", "Côte d'Ivoire": "+225", "Togo": "+228", "Senegal": "+221",
+  "Egypt": "+20", "Ethiopia": "+251", "Uganda": "+256", "Tanzania": "+255", "Zambia": "+260",
+  "Zimbabwe": "+263", "Rwanda": "+250", "Sierra Leone": "+232", "Liberia": "+231",
+  "United States": "+1", "Canada": "+1", "United Kingdom": "+44", "Ireland": "+353",
+  "France": "+33", "Belgium": "+32", "Germany": "+49", "Netherlands": "+31",
+  "Spain": "+34", "Portugal": "+351", "Italy": "+39", "Switzerland": "+41", "Sweden": "+46",
+  "Norway": "+47", "Australia": "+61", "New Zealand": "+64",
+  "India": "+91", "Philippines": "+63", "China": "+86", "Japan": "+81", "South Korea": "+82",
+  "Singapore": "+65", "Malaysia": "+60", "Indonesia": "+62",
+  "United Arab Emirates": "+971", "Saudi Arabia": "+966", "Israel": "+972",
+  "Brazil": "+55", "Mexico": "+52", "Jamaica": "+1", "Trinidad and Tobago": "+1", "Haiti": "+509",
+  "Other": "",
+};
+
 export const CURRENCIES = [
   { code: "EUR", symbol: "€",  en: "Euro",             fr: "Euro" },
   { code: "USD", symbol: "$",  en: "US Dollar", fr: "Dollar Américain" },

@@ -1,17 +1,1 @@
-sorting students in order of application - latest student at top then down the list are oldest applications
-
-how do a student choose if he is going onlinel onsite or self paced - is it the program selected that determines - if yes then the stuent must be able to see it and know during selecting or applying for the course,
-then in application, when selecting a course, change the loader from this program has no course to loading then this program has no course if it sctually has none
-
-ENSURE inputing of country and correct phone number is compulsory, country before ohone in admissions and create a account
-then add country codes to phone number.
-
-apart from setting admissions letter main message, how is it issued to the students
-
-a student applied, i approved and later deleted his account,
-he cannot apply again because the system says a student with the accoutn already existed - but the ui returns status code 2xx ... instead of the actual fault - fix that
-then in his previus account now is to send the admission letter i get student not found - indicationg his account has been deleted - but the alert shows me edge function 2xx error instead of the real response of the account not found
-
-also under enrollments - admin should be able to check if student has completed external registration
-
-after approving the student, i have to refresh page before seing send admisison letter
+enrollments - stident is sucessfully checked as registered externally but not showing on enrollments page

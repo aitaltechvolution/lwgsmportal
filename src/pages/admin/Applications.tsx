@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import AdminLayout from "@/components/AdminLayout";
-import { supabase } from "@/lib/supabase";
+import { supabase, getFunctionErrorMessage } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import { ClipboardList, CheckCircle2, XCircle, Clock, Eye, Mail, Copy } from "lucide-react";
 import { Badge, EmptyState, SkeletonRow, Modal } from "@/components/ui/primitives";
@@ -92,7 +92,10 @@ export default function AdminApplications() {
       const { data, error } = await supabase.functions.invoke("send-admission-letter", {
         body: { studentId: a.student_id, programId: a.program_id ?? null },
       });
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Failed to send.");
+      if (error || data?.error) {
+        const msg = data?.error ?? await getFunctionErrorMessage(error, "Failed to send.");
+        throw new Error(msg);
+      }
       showToast("success", lang === "en" ? "Admission letter sent!" : "Lettre d'admission envoyée !");
     } catch (err) {
       showToast("error", (err instanceof Error ? err.message : null) ?? (lang === "en" ? "Could not send the admission letter." : "Échec de l'envoi de la lettre."));
@@ -122,7 +125,8 @@ export default function AdminApplications() {
     });
 
     if (fnErr || data?.error) {
-      showToast("error", data?.error ?? fnErr?.message ?? "Something went wrong.");
+      const msg = data?.error ?? await getFunctionErrorMessage(fnErr, "Something went wrong.");
+      showToast("error", msg);
       // process-application-decision updates the application's status
       // *before* attempting the enrollment step, so a reported enrollment
       // failure can still mean the status already changed server-side.
@@ -131,7 +135,14 @@ export default function AdminApplications() {
       return;
     }
 
-    setApps(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+    // For a brand-new applicant, the function creates their account
+    // server-side and returns its id as `studentId` — merge it into local
+    // state along with the new status so the "Send Admission Letter"
+    // button (which requires status === "approved" && student_id) shows
+    // up immediately, instead of only appearing after a manual refresh.
+    setApps(prev => prev.map(a => a.id === id
+      ? { ...a, status, student_id: data?.studentId ?? a.student_id }
+      : a));
 
     if (!data.emailSent) {
       // Resend isn't configured or the call failed — the account/enrolment/

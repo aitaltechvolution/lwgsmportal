@@ -252,6 +252,7 @@ Deno.serve(async (req: Request) => {
     if (enrollErr) {
       return new Response(JSON.stringify({
         error: "Account was created, but enrolling the student in the course failed.",
+        studentId: userId,
         debug: { message: enrollErr.message, code: enrollErr.code, details: enrollErr.details, hint: enrollErr.hint },
       }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -265,7 +266,7 @@ Deno.serve(async (req: Request) => {
     });
 
     if (linkErr || !linkData) {
-      return new Response(JSON.stringify({ success: true, emailSent: false, emailError: "Account created, but couldn't generate a password-setup link." }), {
+      return new Response(JSON.stringify({ success: true, emailSent: false, studentId: userId, emailError: "Account created, but couldn't generate a password-setup link." }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -290,6 +291,7 @@ Deno.serve(async (req: Request) => {
       emailSent: emailResult.ok,
       emailError: emailResult.error,
       kind: "new_student",
+      studentId: userId,
       actionLink: linkData.properties.action_link,
     }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },

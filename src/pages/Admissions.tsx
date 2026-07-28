@@ -5,8 +5,15 @@ import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, ArrowLeft, Search, Loader2 } from "lucide-react";
 import { useToast } from "@/contexts/ToastContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { COUNTRIES, COUNTRY_DIAL_CODES } from "@/lib/constants";
 
-interface ProgramOpt { id: string; title: string; title_fr?: string | null; type: string; }
+interface ProgramOpt { id: string; title: string; title_fr?: string | null; type: string; delivery_mode?: "online" | "onsite" | "self_paced" | null; }
+
+const DELIVERY_LABEL: Record<string, { en: string; fr: string }> = {
+  online: { en: "Online", fr: "En ligne" },
+  onsite: { en: "Onsite", fr: "Sur site" },
+  self_paced: { en: "Self-Paced", fr: "À son rythme" },
+};
 interface CourseOpt { id: string; title: string; title_fr?: string | null; code: string | null; program_id: string | null; }
 
 const STEPS = [
@@ -32,6 +39,7 @@ export default function Admissions() {
   const [programSearch, setProgramSearch] = useState("");
   const [programId, setProgramId] = useState(prefilledProgramId);
   const [programCourses, setProgramCourses] = useState<CourseOpt[]>([]);
+  const [programCoursesLoading, setProgramCoursesLoading] = useState(false);
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", phone: "",
     course_id: prefilledCourseId,
@@ -40,7 +48,7 @@ export default function Admissions() {
   const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err" | "exists">("idle");
 
   useEffect(() => {
-    supabase.from("programs").select("id,title,title_fr,type").order("type").order("title")
+    supabase.from("programs").select("id,title,title_fr,type,delivery_mode").order("type").order("title")
       .then(({ data }) => setPrograms((data ?? []) as ProgramOpt[]));
   }, []);
 
@@ -50,7 +58,8 @@ export default function Admissions() {
   // more than one program). Previously this only checked course_programs,
   // silently missing courses whose only link was the primary column.
   useEffect(() => {
-    if (!programId) { setProgramCourses([]); return; }
+    if (!programId) { setProgramCourses([]); setProgramCoursesLoading(false); return; }
+    setProgramCoursesLoading(true);
     (async () => {
       const [{ data: primaryCourses }, { data: links }] = await Promise.all([
         supabase.from("courses").select("id").eq("program_id", programId).eq("is_published", true),
@@ -60,7 +69,7 @@ export default function Admissions() {
         ...(primaryCourses ?? []).map((c: { id: string }) => c.id),
         ...(links ?? []).map((l: { course_id: string }) => l.course_id),
       ]));
-      if (courseIds.length === 0) { setProgramCourses([]); setForm(f => ({ ...f, course_id: "" })); return; }
+      if (courseIds.length === 0) { setProgramCourses([]); setForm(f => ({ ...f, course_id: "" })); setProgramCoursesLoading(false); return; }
       const { data: courses } = await supabase.from("courses").select("id,title,title_fr,code,program_id")
         .in("id", courseIds).eq("is_published", true).order("title");
       const list = (courses ?? []) as CourseOpt[];
@@ -71,6 +80,7 @@ export default function Admissions() {
       // choose here; course_id just carries the first resolved course
       // along for the schema/legacy reference.
       setForm(f => ({ ...f, course_id: list.length > 0 ? list[0].id : "" }));
+      setProgramCoursesLoading(false);
     })();
   }, [programId]);
 
@@ -122,7 +132,7 @@ export default function Admissions() {
       : {
           applicant_name: `${form.first_name} ${form.last_name}`.trim(),
           applicant_email: form.email,
-          phone: form.phone || null,
+          phone: form.phone ? `${COUNTRY_DIAL_CODES[form.country] ?? ""} ${form.phone}`.trim() : null,
           course_id: form.course_id,
           program_id: programId || null,
           nationality: form.country || null,
@@ -263,6 +273,11 @@ export default function Admissions() {
                     <span className="text-sm font-semibold text-navy truncate">
                       {(lang === "fr" && selectedProgram.title_fr) ? selectedProgram.title_fr : selectedProgram.title}
                     </span>
+                    {selectedProgram.delivery_mode && (
+                      <span className="text-xs font-bold text-navy bg-white px-2 py-0.5 rounded-full border border-navy/15 flex-shrink-0">
+                        {lang === "en" ? DELIVERY_LABEL[selectedProgram.delivery_mode]?.en : DELIVERY_LABEL[selectedProgram.delivery_mode]?.fr}
+                      </span>
+                    )}
                     <button type="button" onClick={() => { setProgramId(""); setForm(f => ({ ...f, course_id: "" })); }}
                       className="ml-auto text-gray-400 hover:text-red-500 text-xs transition-colors">
                       ✕
@@ -291,6 +306,11 @@ export default function Admissions() {
                           ${programId === p.id ? "bg-navy/5 text-navy font-bold" : "text-ink"}`}>
                         <span className="font-medium">{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</span>
                         <span className="ml-2 text-xs text-gray-400 capitalize">{p.type}</span>
+                        {p.delivery_mode && (
+                          <span className="ml-2 text-xs font-bold text-navy bg-navy/5 px-2 py-0.5 rounded-full">
+                            {lang === "en" ? DELIVERY_LABEL[p.delivery_mode]?.en : DELIVERY_LABEL[p.delivery_mode]?.fr}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -304,6 +324,11 @@ export default function Admissions() {
                           ${programId === p.id ? "bg-navy/5 text-navy font-bold" : "text-ink"}`}>
                         <span className="font-medium">{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</span>
                         <span className="ml-2 text-xs text-gray-400 capitalize">{p.type}</span>
+                        {p.delivery_mode && (
+                          <span className="ml-2 text-xs font-bold text-navy bg-navy/5 px-2 py-0.5 rounded-full">
+                            {lang === "en" ? DELIVERY_LABEL[p.delivery_mode]?.en : DELIVERY_LABEL[p.delivery_mode]?.fr}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -313,7 +338,13 @@ export default function Admissions() {
                     approved they're enrolled in every course under it (see
                     process-application-decision), so there's nothing to
                     choose here. Just show what that involves. */}
-                {programId && programCourses.length > 1 && (
+                {programId && programCoursesLoading && (
+                  <p className="text-xs text-slate mt-2 flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2.5} />
+                    {lang === "en" ? "Loading courses…" : "Chargement des cours…"}
+                  </p>
+                )}
+                {programId && !programCoursesLoading && programCourses.length > 1 && (
                   <div className="mt-3 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
                     <p className="text-xs font-bold text-slate mb-1.5">
                       {lang === "en"
@@ -327,7 +358,7 @@ export default function Admissions() {
                     </ul>
                   </div>
                 )}
-                {programId && programCourses.length === 1 && (
+                {programId && !programCoursesLoading && programCourses.length === 1 && (
                   <p className="text-xs text-slate mt-2">
                     {lang === "en" ? "Course:" : "Cours :"}{" "}
                     <span className="font-semibold text-ink">
@@ -335,7 +366,7 @@ export default function Admissions() {
                     </span>
                   </p>
                 )}
-                {programId && programCourses.length === 0 && (
+                {programId && !programCoursesLoading && programCourses.length === 0 && (
                   <p className="text-xs text-red-500 mt-2">
                     {lang === "en" ? "This programme has no available courses yet — please choose another." : "Ce programme n'a pas encore de cours disponible — veuillez en choisir un autre."}
                   </p>
@@ -362,12 +393,27 @@ export default function Admissions() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">{lang === "en" ? "Phone" : "Téléphone"}</label>
-                  <input type="tel" value={form.phone} onChange={set("phone")} className={inputCls} />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">{lang === "en" ? "Country" : "Pays"} *</label>
+                  <select required value={form.country}
+                    onChange={e => setForm(f => ({ ...f, country: e.target.value, phone: "" }))}
+                    className={inputCls}>
+                    <option value="" disabled>{lang === "en" ? "Select country…" : "Sélectionner un pays…"}</option>
+                    {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">{lang === "en" ? "Country" : "Pays"}</label>
-                  <input type="text" value={form.country} onChange={set("country")} className={inputCls} />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">{lang === "en" ? "Phone" : "Téléphone"} *</label>
+                  <div className="flex">
+                    {form.country && COUNTRY_DIAL_CODES[form.country] && (
+                      <span className="flex items-center px-3 border border-r-0 border-gray-200 rounded-l-xl bg-gray-50 text-sm text-gray-500 font-semibold">
+                        {COUNTRY_DIAL_CODES[form.country]}
+                      </span>
+                    )}
+                    <input type="tel" required disabled={!form.country}
+                      value={form.phone} onChange={set("phone")}
+                      placeholder={!form.country ? (lang === "en" ? "Select country first" : "Choisir un pays d'abord") : ""}
+                      className={`${inputCls} ${form.country && COUNTRY_DIAL_CODES[form.country] ? "rounded-l-none" : ""} disabled:bg-gray-50 disabled:text-gray-400`} />
+                  </div>
                 </div>
               </div>
 

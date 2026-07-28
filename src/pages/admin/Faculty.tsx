@@ -1,7 +1,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import AdminLayout from "@/components/AdminLayout";
-import { supabase } from "@/lib/supabase";
+import { supabase, getFunctionErrorMessage } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTranslation } from "react-i18next";
 import {
@@ -157,7 +157,7 @@ export default function AdminFaculty() {
           courseIds: selectedCourses,
         },
       });
-      if (fnErr || data?.error) throw new Error(data?.error ?? fnErr?.message ?? "Failed to create account.");
+      if (fnErr || data?.error) throw new Error(data?.error ?? await getFunctionErrorMessage(fnErr, "Failed to create account."));
 
       const uid = data.id as string;
 
@@ -226,10 +226,17 @@ export default function AdminFaculty() {
     setLecturers(prev => prev.filter(x => x.id !== l.id));
     // Unassign their courses first
     await supabase.from("courses").update({ lecturer_id: null }).eq("lecturer_id", l.id);
-    const { error: delErr } = await supabase.from("profiles").delete().eq("id", l.id);
-    if (delErr) {
+    // Uses the delete-account edge function (service role) so the
+    // underlying auth.users record is removed too, not just the profile
+    // row — otherwise the email stays "registered" forever and can't be
+    // reused for a new lecturer account.
+    const { data, error: fnErr } = await supabase.functions.invoke("delete-account", {
+      body: { userId: l.id },
+    });
+    if (fnErr || data?.error) {
       setLecturers(prevList);
-      showToast("error", lang === "en" ? `Could not remove lecturer: ${delErr.message}` : `Impossible de supprimer : ${delErr.message}`);
+      const msg = data?.error ?? await getFunctionErrorMessage(fnErr, "Could not remove lecturer.");
+      showToast("error", lang === "en" ? `Could not remove lecturer: ${msg}` : `Impossible de supprimer : ${msg}`);
       return;
     }
     showToast("info", lang === "en" ? "Lecturer removed." : "Enseignant supprimé.");

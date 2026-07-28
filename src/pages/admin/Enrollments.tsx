@@ -11,10 +11,17 @@ interface EnrollmentRow {
   id: string;
   student_id: string;
   course_id: string;
+  program_id: string | null;
   status: "active" | "pending" | "completed" | "rejected";
   enrolled_at: string;
   student?: { full_name: string; email: string; avatar_url?: string | null } | null;
-  course?: { title: string; title_fr?: string; code?: string; programs?: { title: string; title_fr?: string } | null } | null;
+  course?: { title: string; title_fr?: string; code?: string; programs?: { title: string; title_fr?: string; type?: string } | null } | null;
+  // Whether the student has completed the external registration step
+  // (e.g. a Google Form) required for their programme type — sourced
+  // from the matching application row (see Applications.tsx, where the
+  // admin ticks this). Only meaningful when the programme type actually
+  // requires it (externalRegRequired below).
+  external_registration_confirmed?: boolean;
 }
 
 interface Student { id: string; full_name: string; email: string; }
@@ -53,20 +60,54 @@ export default function AdminEnrollments() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [requiredTypes, setRequiredTypes] = useState<Set<string>>(new Set());
+
   const load = async () => {
     setLoading(true);
-    const [enrRes, stuRes, progRes] = await Promise.all([
+    const [enrRes, stuRes, progRes, appRes, settingsRes] = await Promise.all([
       supabase
         .from("enrollments")
-        .select("id, student_id, course_id, status, enrolled_at, student:student_id(full_name, email, avatar_url), course:course_id(title, title_fr, code, programs!courses_program_id_fkey(title, title_fr))")
+        .select("id, student_id, course_id, program_id, status, enrolled_at, student:student_id(full_name, email, avatar_url), course:course_id(title, title_fr, code, programs!courses_program_id_fkey(title, title_fr, type))")
         .order("enrolled_at", { ascending: false })
         .limit(200),
       supabase.from("profiles").select("id, full_name, email").eq("role", "student").order("full_name"),
       supabase.from("programs").select("id, title, title_fr").order("title"),
+      // Only need student_id + program_id to match against each enrollment,
+      // plus the confirmation flag itself. An application can have a null
+      // program_id (only course_id set) while the resulting enrollment's
+      // program_id gets resolved from the course itself at approval time
+      // (see process-application-decision) — join courses here too so we
+      // can resolve the same effective program_id and the match doesn't
+      // silently miss.
+      supabase.from("applications").select("student_id, program_id, course_id, external_registration_confirmed, courses(program_id)").not("student_id", "is", null),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "external_reg_required_certificate", "external_reg_required_diploma", "external_reg_required_pastoral",
+      ]),
     ]);
-    setEnrollments((enrRes.data ?? []) as unknown as EnrollmentRow[]);
+    const apps = (appRes.data ?? []) as unknown as { student_id: string; program_id: string | null; course_id: string | null; external_registration_confirmed: boolean; courses?: { program_id: string | null } | { program_id: string | null }[] | null }[];
+    // Map keyed by `student_id:program_id` — if a student has more than
+    // one application to the same programme, "confirmed" wins so a
+    // resolved/duplicate application doesn't mask a confirmed one.
+    const confirmMap = new Map<string, boolean>();
+    apps.forEach(a => {
+      const joinedCourse = Array.isArray(a.courses) ? a.courses[0] : a.courses;
+      const effectiveProgramId = a.program_id ?? joinedCourse?.program_id ?? null;
+      const key = `${a.student_id}:${effectiveProgramId ?? ""}`;
+      confirmMap.set(key, confirmMap.get(key) || a.external_registration_confirmed);
+    });
+    const enrList = (enrRes.data ?? []) as unknown as EnrollmentRow[];
+    enrList.forEach(e => {
+      e.external_registration_confirmed = confirmMap.get(`${e.student_id}:${e.program_id ?? ""}`) ?? false;
+    });
+    setEnrollments(enrList);
     setStudents((stuRes.data ?? []) as Student[]);
     setPrograms((progRes.data ?? []) as Program[]);
+    const settingsMap = new Map((settingsRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    const required = new Set<string>();
+    if (settingsMap.get("external_reg_required_certificate") === "true") required.add("certificate");
+    if (settingsMap.get("external_reg_required_diploma") === "true") required.add("diploma");
+    if (settingsMap.get("external_reg_required_pastoral") === "true") required.add("pastoral");
+    setRequiredTypes(required);
     setLoading(false);
   };
 
@@ -192,6 +233,7 @@ export default function AdminEnrollments() {
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "Program" : "Programme"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Course" : "Cours"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Status" : "Statut"}</th>
+                  <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "External Reg." : "Inscript. Externe"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden sm:table-cell">{lang === "en" ? "Date" : "Date"}</th>
                   <th className="text-right px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Actions" : "Actions"}</th>
                 </tr>
@@ -199,7 +241,7 @@ export default function AdminEnrollments() {
               <tbody className="divide-y divide-gray-50">
                 {filtered.map((enr) => {
                   const student = enr.student as { full_name?: string; email?: string; avatar_url?: string | null } | null;
-                  const course = enr.course as { title?: string; title_fr?: string; code?: string; programs?: { title: string; title_fr?: string } | null } | null;
+                  const course = enr.course as { title?: string; title_fr?: string; code?: string; programs?: { title: string; title_fr?: string; type?: string } | null } | null;
                   const program = course?.programs;
                   const cTitle = (lang === "fr" && course?.title_fr) ? course.title_fr : course?.title ?? "—";
                   const pTitle = program ? ((lang === "fr" && program.title_fr) ? program.title_fr : program.title) : "—";
@@ -225,6 +267,15 @@ export default function AdminEnrollments() {
                       </td>
                       <td className="px-5 py-3.5 text-center">
                         <Badge color={STATUS_COLOR[enr.status] ?? "gray"}>{lang === "en" ? STATUS_LABEL[enr.status]?.en : STATUS_LABEL[enr.status]?.fr}</Badge>
+                      </td>
+                      <td className="px-5 py-3.5 text-center hidden md:table-cell">
+                        {enr.external_registration_confirmed ? (
+                          <Badge color="green">{lang === "en" ? "Confirmed" : "Confirmé"}</Badge>
+                        ) : program?.type && requiredTypes.has(program.type) ? (
+                          <Badge color="orange">{lang === "en" ? "Pending" : "En attente"}</Badge>
+                        ) : (
+                          <span className="text-xs text-gray-300">{lang === "en" ? "N/A" : "S/O"}</span>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 text-gray-400 text-xs hidden sm:table-cell">{fmtDate(enr.enrolled_at)}</td>
                       <td className="px-5 py-3.5 text-right">
