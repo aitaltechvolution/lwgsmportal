@@ -47,7 +47,7 @@ const NATIONS = ["Nigeria", "Ghana", "Côte d'Ivoire", "Cameroon", "UK", "USA"];
 const PROGRAMS = [
   { key: "cert", id: "certificate", icon: FileEdit,    duration: "2 weeks – 12 months",  color: "bg-blue-50 text-blue-600" },
   { key: "dip",  id: "diploma",     icon: GraduationCap, duration: "6–18 months", color: "bg-purple-50 text-purple-600" },
-  { key: "adv",  id: "pastoral",    icon: Award,       duration: "6 Months",   color: "bg-amber-50 text-brand" },
+  { key: "adv",  id: "pastoral",    icon: Award,       duration: "10 weeks",   color: "bg-amber-50 text-brand" },
 ];
 
 const QUICK_LINKS = [

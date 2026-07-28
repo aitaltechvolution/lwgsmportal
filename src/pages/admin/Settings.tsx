@@ -67,6 +67,16 @@ export default function AdminSettings() {
   const [feeCertPastoral, setFeeCertPastoral] = useState("");
   const [feeCertCertificateSelfPaced, setFeeCertCertificateSelfPaced] = useState("");
   const [feeCertDiplomaSelfPaced, setFeeCertDiplomaSelfPaced] = useState("");
+
+  // #1: external registration gate — e.g. a Google Form a student must
+  // complete before accessing course content, required per programme
+  // type (admin can turn it on/off per type, and set the link).
+  const [extRegRequiredCertificate, setExtRegRequiredCertificate] = useState(false);
+  const [extRegUrlCertificate, setExtRegUrlCertificate] = useState("");
+  const [extRegRequiredDiploma, setExtRegRequiredDiploma] = useState(false);
+  const [extRegUrlDiploma, setExtRegUrlDiploma] = useState("");
+  const [extRegRequiredPastoral, setExtRegRequiredPastoral] = useState(false);
+  const [extRegUrlPastoral, setExtRegUrlPastoral] = useState("");
   const [paymentSettingsSaving, setPaymentSettingsSaving] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [bankAccountsLoading, setBankAccountsLoading] = useState(true);
@@ -89,6 +99,11 @@ export default function AdminSettings() {
   // Account verification callback URL (used in approval emails)
   const [verifyCallbackUrl, setVerifyCallbackUrl] = useState("");
   const [verifyCallbackSaving, setVerifyCallbackSaving] = useState(false);
+  // #4: admin-editable main message on the admission letter PDF — logo,
+  // name, matric no, date, and programme are all fixed/auto-filled by
+  // send-admission-letter; this is the one part admin controls.
+  const [admissionLetterMessage, setAdmissionLetterMessage] = useState("");
+  const [admissionLetterSaving, setAdmissionLetterSaving] = useState(false);
 
   // Attendance policy — the on/off switch now lives per-course (see admin
   // Courses); this page only keeps the global minimum-rate threshold.
@@ -103,7 +118,10 @@ export default function AdminSettings() {
       "fee_cert_certificate_selfpaced", "fee_cert_diploma_selfpaced",
       "school_name_en", "school_name_fr", "school_tagline_en", "school_tagline_fr",
       "notify_new_enrollment", "notify_payment_received", "notify_certificate_issued", "notify_sms_enabled",
-      "min_attendance_pct", "account_verification_redirect_url",
+      "min_attendance_pct", "account_verification_redirect_url", "admission_letter_message",
+      "external_reg_required_certificate", "external_reg_url_certificate",
+      "external_reg_required_diploma", "external_reg_url_diploma",
+      "external_reg_required_pastoral", "external_reg_url_pastoral",
     ]).then(({ data }) => {
       const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
       setPaystackKey(map.get("paystack_public_key") ?? "");
@@ -117,6 +135,12 @@ export default function AdminSettings() {
       setFeeCertPastoral(map.get("fee_cert_pastoral") ?? "");
       setFeeCertCertificateSelfPaced(map.get("fee_cert_certificate_selfpaced") ?? "");
       setFeeCertDiplomaSelfPaced(map.get("fee_cert_diploma_selfpaced") ?? "");
+      setExtRegRequiredCertificate((map.get("external_reg_required_certificate") ?? "false") === "true");
+      setExtRegUrlCertificate(map.get("external_reg_url_certificate") ?? "");
+      setExtRegRequiredDiploma((map.get("external_reg_required_diploma") ?? "false") === "true");
+      setExtRegUrlDiploma(map.get("external_reg_url_diploma") ?? "");
+      setExtRegRequiredPastoral((map.get("external_reg_required_pastoral") ?? "false") === "true");
+      setExtRegUrlPastoral(map.get("external_reg_url_pastoral") ?? "");
       setSchoolNameEn(map.get("school_name_en") ?? "Living Waters Global School of Ministry");
       setSchoolNameFr(map.get("school_name_fr") ?? "École Mondiale du Ministère des Eaux Vives");
       setTaglineEn(map.get("school_tagline_en") ?? "");
@@ -127,6 +151,7 @@ export default function AdminSettings() {
       setNotifySms((map.get("notify_sms_enabled") ?? "false") === "true");
       setMinAttendancePct(map.get("min_attendance_pct") ?? "75");
       setVerifyCallbackUrl(map.get("account_verification_redirect_url") ?? "");
+      setAdmissionLetterMessage(map.get("admission_letter_message") ?? "Congratulations on your admission to Living Waters Global School of Ministry. We are delighted to welcome you into this programme and look forward to walking this journey of learning and formation with you.");
     });
     loadBankAccounts();
   }, []);
@@ -268,6 +293,22 @@ export default function AdminSettings() {
     }
   };
 
+  const onSaveAdmissionLetterMessage = async (e: FormEvent) => {
+    e.preventDefault();
+    setAdmissionLetterSaving(true);
+    try {
+      const { error } = await supabase.from("site_settings").upsert(
+        { key: "admission_letter_message", value: admissionLetterMessage.trim(), updated_at: new Date().toISOString() }
+      );
+      if (error) throw error;
+      showMsg("ok", lang === "en" ? "Admission letter message saved!" : "Message de la lettre d'admission enregistré !");
+    } catch {
+      showMsg("err", lang === "en" ? "Failed to save." : "Échec de l'enregistrement.");
+    } finally {
+      setAdmissionLetterSaving(false);
+    }
+  };
+
   const onSavePaymentSettings = async (e: FormEvent) => {
     e.preventDefault();
     setPaymentSettingsSaving(true);
@@ -284,6 +325,12 @@ export default function AdminSettings() {
         { key: "fee_cert_pastoral", value: feeCertPastoral || "0" },
         { key: "fee_cert_certificate_selfpaced", value: feeCertCertificateSelfPaced || "0" },
         { key: "fee_cert_diploma_selfpaced", value: feeCertDiplomaSelfPaced || "0" },
+        { key: "external_reg_required_certificate", value: String(extRegRequiredCertificate) },
+        { key: "external_reg_url_certificate", value: extRegUrlCertificate.trim() },
+        { key: "external_reg_required_diploma", value: String(extRegRequiredDiploma) },
+        { key: "external_reg_url_diploma", value: extRegUrlDiploma.trim() },
+        { key: "external_reg_required_pastoral", value: String(extRegRequiredPastoral) },
+        { key: "external_reg_url_pastoral", value: extRegUrlPastoral.trim() },
       ];
       const { error } = await supabase.from("site_settings").upsert(updates.map(u => ({ ...u, updated_at: new Date().toISOString() })));
       if (error) throw error;
@@ -526,6 +573,45 @@ export default function AdminSettings() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-2">
+              <p className="text-xs font-bold text-slate uppercase tracking-wider mb-2">
+                {lang === "en" ? "External Registration Gate" : "Vérification d'Inscription Externe"}
+              </p>
+              <p className="text-xs text-gray-400 mb-3">
+                {lang === "en"
+                  ? "Require students to complete an external form (e.g. Google Form) before they can access course content, per programme type. If off for a type, students in that type's programmes skip this check entirely."
+                  : "Exiger que les étudiants complètent un formulaire externe (ex. Google Form) avant d'accéder au contenu des cours, par type de programme. Si désactivé pour un type, les étudiants de ce type ignorent complètement cette vérification."}
+              </p>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+                  <div className="flex-1 min-w-0 mr-3">
+                    <span className="text-sm font-semibold text-ink block mb-1.5">{lang === "en" ? "Certificate Programme" : "Programme Certificat"}</span>
+                    <input type="url" placeholder="https://forms.google.com/…" value={extRegUrlCertificate} onChange={e => setExtRegUrlCertificate(e.target.value)}
+                      disabled={!extRegRequiredCertificate} className="input disabled:bg-gray-100 disabled:text-gray-400" />
+                  </div>
+                  <ToggleSwitch checked={extRegRequiredCertificate} onChange={setExtRegRequiredCertificate} />
+                </div>
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+                  <div className="flex-1 min-w-0 mr-3">
+                    <span className="text-sm font-semibold text-ink block mb-1.5">{lang === "en" ? "Diploma Programme" : "Programme Diplôme"}</span>
+                    <input type="url" placeholder="https://forms.google.com/…" value={extRegUrlDiploma} onChange={e => setExtRegUrlDiploma(e.target.value)}
+                      disabled={!extRegRequiredDiploma} className="input disabled:bg-gray-100 disabled:text-gray-400" />
+                  </div>
+                  <ToggleSwitch checked={extRegRequiredDiploma} onChange={setExtRegRequiredDiploma} />
+                </div>
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3.5">
+                  <div className="flex-1 min-w-0 mr-3">
+                    <span className="text-sm font-semibold text-ink block mb-1.5">{lang === "en" ? "Pastoral Ordination & Licensing" : "Ordination et Licence Pastorale"}</span>
+                    <input type="url" placeholder="https://forms.google.com/…" value={extRegUrlPastoral} onChange={e => setExtRegUrlPastoral(e.target.value)}
+                      disabled={!extRegRequiredPastoral} className="input disabled:bg-gray-100 disabled:text-gray-400" />
+                  </div>
+                  <ToggleSwitch checked={extRegRequiredPastoral} onChange={setExtRegRequiredPastoral} />
+                </div>
+              </div>
+            </div>
+
             <button type="submit" disabled={paymentSettingsSaving} className="btn-primary w-full py-2.5 disabled:opacity-60 disabled:translate-y-0">
               {paymentSettingsSaving ? "…" : (lang === "en" ? "Save Payment Settings" : "Enregistrer")}
             </button>
@@ -710,6 +796,27 @@ export default function AdminSettings() {
             />
             <button type="submit" disabled={verifyCallbackSaving} className="btn-primary px-5 disabled:opacity-60 disabled:translate-y-0 whitespace-nowrap">
               {verifyCallbackSaving ? "…" : (lang === "en" ? "Save" : "Enregistrer")}
+            </button>
+          </form>
+        </div>
+
+        <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
+          <h3 className="font-bold text-ink mb-1 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-navy" strokeWidth={2} />
+            {lang === "en" ? "Admission Letter Message" : "Message de la Lettre d'Admission"}
+          </h3>
+          <p className="text-xs text-slate mb-4">
+            {lang === "en"
+              ? "The main welcome message shown on every Letter of Admission (see the Applications page). The logo, student name, matric number, date, and programme are added automatically — only this message is yours to edit."
+              : "Le message de bienvenue principal affiché sur chaque Lettre d'Admission (voir la page Candidatures). Le logo, le nom de l'étudiant, le numéro matricule, la date et le programme sont ajoutés automatiquement — seul ce message vous appartient."}
+          </p>
+          <form onSubmit={onSaveAdmissionLetterMessage} className="space-y-3">
+            <textarea
+              value={admissionLetterMessage} onChange={e => setAdmissionLetterMessage(e.target.value)}
+              rows={5} className="input resize-y" placeholder={lang === "en" ? "Write the welcome message…" : "Rédigez le message de bienvenue…"}
+            />
+            <button type="submit" disabled={admissionLetterSaving} className="btn-primary disabled:opacity-60 disabled:translate-y-0">
+              {admissionLetterSaving ? "…" : (lang === "en" ? "Save Message" : "Enregistrer")}
             </button>
           </form>
         </div>

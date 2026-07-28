@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import { LANGUAGES, COUNTRIES } from "@/lib/constants";
 import AvatarUpload from "@/components/AvatarUpload";
+import MatricNumbersList from "@/components/MatricNumbersList";
 
 export default function StudentProfile() {
   const { showToast } = useToast();
@@ -109,6 +110,12 @@ export default function StudentProfile() {
             </div>
           </div>
         </div>
+
+        {profile?.id && (
+          <div className="mb-4 animate-fade-in-up" style={{ animationDelay: "0.05s" }}>
+            <MatricNumbersList studentId={profile.id} primaryMatric={profile.matric_number ?? null} lang={lang} />
+          </div>
+        )}
 
         <div className="card p-6 mb-4 animate-fade-in-up" style={{ animationDelay: "0.08s" }}>
           <h3 className="font-bold text-ink mb-5 flex items-center gap-2">

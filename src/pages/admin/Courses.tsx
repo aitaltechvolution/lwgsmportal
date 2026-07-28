@@ -29,7 +29,7 @@ interface CourseRow {
   linkedProgramNames?: string;
 }
 
-interface Program { id: string; title: string; title_fr: string | null; }
+interface Program { id: string; title: string; title_fr: string | null; delivery_mode: "online" | "onsite" | "self_paced" }
 interface Lecturer { id: string; full_name: string; }
 
 const EMPTY_FORM = { title: "", title_fr: "", code: "", program_id: "", lecturer_id: "", description: "", description_fr: "", objectives: "", duration: "", is_published: false, lecturer_locked: false, requires_attendance_for_certificate: false, allow_videos: true };
@@ -48,6 +48,17 @@ export default function AdminCourses() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+
+  // #8: self-paced programmes never require attendance for certificate
+  // eligibility — auto-disabled here, matching the DB-level guarantee
+  // (see the courses_enforce_no_attendance_self_paced trigger).
+  const selectedProgram = programs.find(p => p.id === form.program_id);
+  const isSelfPacedProgram = selectedProgram?.delivery_mode === "self_paced";
+  useEffect(() => {
+    if (isSelfPacedProgram && form.requires_attendance_for_certificate) {
+      setForm(f => ({ ...f, requires_attendance_for_certificate: false }));
+    }
+  }, [isSelfPacedProgram]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enrolledView, setEnrolledView] = useState<string | null>(null); // course id
@@ -61,7 +72,7 @@ export default function AdminCourses() {
     setLoading(true);
     const [cRes, pRes, lRes, linkRes] = await Promise.all([
       supabase.from("courses").select("id, title, title_fr, code, is_published, program_id, lecturer_id, description, description_fr, objectives, duration, lecturer_locked, requires_attendance_for_certificate, allow_videos, programs!courses_program_id_fkey(title, title_fr), profiles:lecturer_id(full_name)").order("created_at", { ascending: false }),
-      supabase.from("programs").select("id, title, title_fr").order("title"),
+      supabase.from("programs").select("id, title, title_fr, delivery_mode").order("title"),
       supabase.from("profiles").select("id, full_name").eq("role", "lecturer").order("full_name"),
       supabase.from("course_programs").select("course_id, program_id"),
     ]);
@@ -397,12 +408,20 @@ export default function AdminCourses() {
             <div>
               <p className="text-sm font-semibold text-ink">{lang === "en" ? "Require attendance for certificate" : "Exiger la présence pour le certificat"}</p>
               <p className="text-xs text-slate mt-0.5">
-                {lang === "en"
-                  ? "When on, students must also meet the minimum attendance rate in this course to be certificate-eligible (in addition to materials and assessments/exams)."
-                  : "Si activé, les étudiants doivent aussi atteindre le taux de présence minimum dans ce cours pour être éligibles au certificat (en plus des ressources et évaluations/examens)."}
+                {isSelfPacedProgram
+                  ? (lang === "en"
+                      ? "Disabled automatically — this course's programme is Self-Paced, which never requires attendance for certificate eligibility."
+                      : "Désactivé automatiquement — le programme de ce cours est Autonome, qui n'exige jamais de présence pour l'éligibilité au certificat.")
+                  : (lang === "en"
+                      ? "When on, students must also meet the minimum attendance rate in this course to be certificate-eligible (in addition to materials and assessments/exams)."
+                      : "Si activé, les étudiants doivent aussi atteindre le taux de présence minimum dans ce cours pour être éligibles au certificat (en plus des ressources et évaluations/examens).")}
               </p>
             </div>
-            <ToggleSwitch checked={form.requires_attendance_for_certificate} onChange={v => setF("requires_attendance_for_certificate", v)} />
+            <ToggleSwitch
+              checked={form.requires_attendance_for_certificate}
+              onChange={v => setF("requires_attendance_for_certificate", v)}
+              disabled={isSelfPacedProgram}
+            />
           </div>
           {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 font-medium">{error}</div>}
           <div className="flex gap-3">

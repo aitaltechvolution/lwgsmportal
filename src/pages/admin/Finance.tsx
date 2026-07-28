@@ -34,6 +34,7 @@ interface Payment {
   created_at: string;
   confirmed_at: string | null;
   course_id: string | null;
+  program_id: string | null;
   profiles?: { full_name: string; email: string } | null;
 }
 
@@ -83,19 +84,34 @@ export default function AdminFinance() {
 
   const loadProgramTitles = async (rows: Payment[]) => {
     const courseIds = Array.from(new Set(rows.map(p => p.course_id).filter((id): id is string => !!id)));
-    if (courseIds.length === 0) return;
-    const { data: courses } = await supabase.from("courses").select("id, title, title_fr, program_id").in("id", courseIds);
-    if (!courses) return;
+    // Registration payments now carry program_id directly (a single
+    // payment covers every course under the programme) — resolve those
+    // straight from programs, no need to go through a course at all.
+    const directProgramIds = Array.from(new Set(rows.map(p => p.program_id).filter((id): id is string => !!id)));
+    if (courseIds.length === 0 && directProgramIds.length === 0) return;
+
+    const [coursesRes, directProgramsRes] = await Promise.all([
+      courseIds.length ? supabase.from("courses").select("id, title, title_fr, program_id").in("id", courseIds) : Promise.resolve({ data: [] as { id: string; title: string; title_fr: string | null; program_id: string | null }[] }),
+      directProgramIds.length ? supabase.from("programs").select("id, title, title_fr").in("id", directProgramIds) : Promise.resolve({ data: [] as { id: string; title: string; title_fr: string | null }[] }),
+    ]);
+    const courses = coursesRes.data ?? [];
     const programIds = Array.from(new Set(courses.map((c: { program_id: string | null }) => c.program_id).filter((id): id is string => !!id)));
-    const { data: programs } = programIds.length
+    const { data: programsViaCourses } = programIds.length
       ? await supabase.from("programs").select("id, title, title_fr").in("id", programIds)
       : { data: [] as { id: string; title: string; title_fr: string | null }[] };
-    const programMap = new Map((programs ?? []).map((pr: { id: string; title: string; title_fr: string | null }) => [pr.id, pr]));
+    const programMap = new Map([...(programsViaCourses ?? []), ...(directProgramsRes.data ?? [])].map((pr: { id: string; title: string; title_fr: string | null }) => [pr.id, pr]));
+
     const map: Record<string, string> = {};
     (courses as { id: string; title: string; title_fr: string | null; program_id: string | null }[]).forEach(c => {
       const program = c.program_id ? programMap.get(c.program_id) : null;
       const title = program ? ((lang === "fr" && program.title_fr) || program.title) : ((lang === "fr" && c.title_fr) || c.title);
       map[c.id] = title;
+    });
+    // Also key the map by program_id directly, so the receipt lookup
+    // finds a title either way — whichever the payment row actually has.
+    directProgramIds.forEach(pid => {
+      const program = programMap.get(pid);
+      if (program) map[pid] = (lang === "fr" && program.title_fr) || program.title;
     });
     setProgramTitles(map);
   };
@@ -402,7 +418,11 @@ export default function AdminFinance() {
           onClose={() => setReceiptFor(null)}
           payment={receiptFor}
           studentName={(receiptFor.profiles as { full_name?: string } | null)?.full_name ?? "—"}
-          programTitle={receiptFor.course_id ? (programTitles[receiptFor.course_id] ?? null) : null}
+          programTitle={
+            receiptFor.course_id ? (programTitles[receiptFor.course_id] ?? null)
+            : receiptFor.program_id ? (programTitles[receiptFor.program_id] ?? null)
+            : null
+          }
           lang={lang}
         />
       )}

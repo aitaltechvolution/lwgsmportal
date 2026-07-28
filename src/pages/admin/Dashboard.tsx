@@ -11,13 +11,14 @@ import { Badge, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import GradientBlobs from "@/components/ui/GradientBlobs";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import CurrencyToggle from "@/components/CurrencyToggle";
-import { PAYMENT_TYPES } from "@/lib/constants";
+import { PAYMENT_TYPES, CURRENCIES } from "@/lib/constants";
 
 interface KPIs {
   totalStudents: number;
   activeLecturers: number;
   coursesRunning: number;
   revenueThisMonth: number;
+  revenueThisMonthNgn: number;
   certificatesIssued: number;
   pendingApplications: number;
 }
@@ -34,6 +35,7 @@ interface RecentPayment {
   id: string;
   amount: number;
   amount_usd: number | null;
+  amount_ngn: number | null;
   currency: string;
   type: string;
   status: "pending" | "success" | "failed";
@@ -53,11 +55,11 @@ const PAYMENT_STATUS_LABEL: Record<string, { en: string; fr: string }> = {
 export default function AdminDashboard() {
   const { i18n } = useTranslation();
   const lang = (i18n.language.startsWith("fr") ? "fr" : "en") as "en" | "fr";
-  const { format, exchangeRate } = useCurrency();
+  const { format, exchangeRate, currency } = useCurrency();
 
   const [kpis, setKpis] = useState<KPIs>({
     totalStudents: 0, activeLecturers: 0, coursesRunning: 0,
-    revenueThisMonth: 0, certificatesIssued: 0, pendingApplications: 0,
+    revenueThisMonth: 0, revenueThisMonthNgn: 0, certificatesIssued: 0, pendingApplications: 0,
   });
   const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
   const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
@@ -101,6 +103,7 @@ export default function AdminDashboard() {
         activeLecturers: lecturersRes.count ?? 0,
         coursesRunning: coursesRes.count ?? 0,
         revenueThisMonth: revenue,
+        revenueThisMonthNgn: revenueNgn,
         certificatesIssued: certsRes.count ?? 0,
         pendingApplications: appsRes.count ?? 0,
       });
@@ -115,7 +118,9 @@ export default function AdminDashboard() {
     { label: lang === "en" ? "Total Students" : "Total Étudiants", value: kpis.totalStudents, icon: GraduationCap, accent: "bg-navy/5 text-navy" },
     { label: lang === "en" ? "Active Lecturers" : "Enseignants Actifs", value: kpis.activeLecturers, icon: Users, accent: "bg-purple-50 text-purple-600" },
     { label: lang === "en" ? "Courses Running" : "Cours en Cours", value: kpis.coursesRunning, icon: BookOpen, accent: "bg-blue-50 text-blue-600" },
-    { label: lang === "en" ? "Revenue This Month" : "Revenu ce Mois", value: format(kpis.revenueThisMonth), icon: Wallet, accent: "bg-green-50 text-green-600" },
+    { label: lang === "en" ? "Revenue This Month" : "Revenu ce Mois",
+      value: currency === "NGN" ? `${CURRENCIES.find(c => c.code === "NGN")!.symbol}${kpis.revenueThisMonthNgn.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : format(kpis.revenueThisMonth),
+      icon: Wallet, accent: "bg-green-50 text-green-600" },
     { label: lang === "en" ? "Certificates Issued" : "Certificats Émis", value: kpis.certificatesIssued, icon: Award, accent: "bg-orange-50 text-brand" },
     { label: lang === "en" ? "Pending Applications" : "Candidatures en Attente", value: kpis.pendingApplications, icon: Clock, accent: "bg-yellow-50 text-yellow-600" },
   ];
@@ -228,7 +233,11 @@ export default function AdminDashboard() {
                     <p className="text-xs text-gray-400">{(PAYMENT_TYPES.find(t => t.value === p.type) ? (lang === "en" ? PAYMENT_TYPES.find(t => t.value === p.type)!.en : PAYMENT_TYPES.find(t => t.value === p.type)!.fr) : p.type)} · {fmtDate(p.created_at)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="font-bold text-ink text-sm">{format(p.amount_usd ?? p.amount)}</p>
+                    <p className="font-bold text-ink text-sm">
+                      {currency === "NGN" && p.amount_ngn != null
+                        ? `${CURRENCIES.find(c => c.code === "NGN")!.symbol}${p.amount_ngn.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                        : format(p.amount_usd ?? p.amount)}
+                    </p>
                     <Badge color={PAYMENT_STATUS_COLOR[p.status]}>{lang === "en" ? PAYMENT_STATUS_LABEL[p.status].en : PAYMENT_STATUS_LABEL[p.status].fr}</Badge>
                   </div>
                 </div>

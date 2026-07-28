@@ -3,34 +3,48 @@ import { ArrowUp } from "lucide-react";
 
 /**
  * Floating "back to top" button for long pages. Portal layouts scroll
- * their <main> element (not window), so this listens for scroll on the
- * nearest scrollable ancestor at mount time rather than assuming window.
+ * their <main> element (not window), so this resolves the actual
+ * scrollable target fresh each time — not once at mount, since on pages
+ * where content loads asynchronously (Reports, Dashboard, etc.) <main>
+ * often isn't tall enough to scroll yet at mount time, which previously
+ * locked this onto `window` permanently and made the button a no-op on
+ * exactly those pages once their content did load in.
  */
 export default function BackToTop() {
   const [visible, setVisible] = useState(false);
-  const [scrollEl, setScrollEl] = useState<HTMLElement | Window | null>(null);
+
+  // The actual element that's scrolling right now — window only if
+  // <main> genuinely isn't the one scrolling (rare; most pages scroll
+  // inside <main>). Re-checked on every call rather than cached.
+  const getScrollTarget = (): HTMLElement | Window => {
+    const main = document.querySelector("main");
+    return main && main.scrollHeight > main.clientHeight ? main : window;
+  };
 
   useEffect(() => {
-    // Find the scrollable <main> this button is rendered alongside (it's a
-    // sibling of <main> inside the same flex column in PortalLayout/Layout).
-    const main = document.querySelector("main");
-    const el: HTMLElement | Window = main && main.scrollHeight > main.clientHeight ? main : window;
-    setScrollEl(el);
-
-    const target = main ?? window;
     const onScroll = () => {
-      const top = main ? main.scrollTop : window.scrollY;
+      const target = getScrollTarget();
+      const top = target instanceof Window ? window.scrollY : target.scrollTop;
       setVisible(top > 400);
     };
-    target.addEventListener("scroll", onScroll, { passive: true });
+
+    // Listen on both window and <main> (if present) — whichever one is
+    // actually scrolling will fire, and getScrollTarget() inside the
+    // handler figures out which that is at that moment, not at mount.
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const main = document.querySelector("main");
+    main?.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => target.removeEventListener("scroll", onScroll);
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      main?.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   const onClick = () => {
-    if (!scrollEl) return;
-    if (scrollEl instanceof Window) scrollEl.scrollTo({ top: 0, behavior: "smooth" });
-    else scrollEl.scrollTo({ top: 0, behavior: "smooth" });
+    const target = getScrollTarget();
+    target.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (!visible) return null;

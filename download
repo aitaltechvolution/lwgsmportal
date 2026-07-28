@@ -1,39 +1,17 @@
-1. under lecturer - resources - clicking open a resource tries to open an external link (item url), resulting in 404
+sorting students in order of application - latest student at top then down the list are oldest applications
 
+how do a student choose if he is going onlinel onsite or self paced - is it the program selected that determines - if yes then the stuent must be able to see it and know during selecting or applying for the course,
+then in application, when selecting a course, change the loader from this program has no course to loading then this program has no course if it sctually has none
 
-1. links for vidoes
-since note and file is alomost the same
-let's pick file
+ENSURE inputing of country and correct phone number is compulsory, country before ohone in admissions and create a account
+then add country codes to phone number.
 
-File, Vidoe, link
+apart from setting admissions letter main message, how is it issued to the students
 
-works the same, if the link is clicked then let is count
+a student applied, i approved and later deleted his account,
+he cannot apply again because the system says a student with the accoutn already existed - but the ui returns status code 2xx ... instead of the actual fault - fix that
+then in his previus account now is to send the admission letter i get student not found - indicationg his account has been deleted - but the alert shows me edge function 2xx error instead of the real response of the account not found
 
-and admin can decide if a course allows vidoes or not
-if no use only file and link
-this can be set per course and not globally
+also under enrollments - admin should be able to check if student has completed external registration
 
-
-
-
-1. some and most of the texts are too small to read
-
-2. i need all pages in light mode, maybe 1 or 2 components in each or none can have the dark blue background
-
-3. client said that texts are difficult to read
-
-
-
-same with everything in admin pages
-
-the button next to destinations in 404 is invisible due to the colors ot the button
-
-site is mainly light more and legible texts
-
-bulid and return the whole project
-
-
-
-
-
-NB: under the public folder is supposed to be ceo.jpg but i removed it because the file is >22mb. work with that in mind, ill add it later
+after approving the student, i have to refresh page before seing send admisison letter

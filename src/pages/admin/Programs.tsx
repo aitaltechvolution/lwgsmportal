@@ -18,8 +18,20 @@ interface Program {
   requirements: string | null;
   requirements_fr: string | null;
   image_url: string | null;
+  delivery_mode: "online" | "onsite" | "self_paced";
+  // Only meaningful when delivery_mode is "online" — a student otherwise
+  // eligible still waits until this date to actually receive the
+  // certificate. Self-paced and onsite ignore this entirely.
+  certificate_deadline: string | null;
   courseCount?: number;
 }
+
+const DELIVERY_MODES = ["online", "onsite", "self_paced"] as const;
+const DELIVERY_MODE_LABEL: Record<string, { en: string; fr: string }> = {
+  online: { en: "Online", fr: "En Ligne" },
+  onsite: { en: "Onsite", fr: "Sur Site" },
+  self_paced: { en: "Self-Paced", fr: "Autonome" },
+};
 
 const PROGRAM_TYPES = ["certificate", "diploma", "pastoral"] as const;
 const TYPE_COLOR: Record<string, "blue" | "navy" | "orange"> = {
@@ -34,6 +46,8 @@ const TYPE_LABEL: Record<string, { en: string; fr: string }> = {
 const EMPTY_FORM = {
   title: "", title_fr: "", type: "certificate" as typeof PROGRAM_TYPES[number],
   duration: "", description: "", description_fr: "", requirements: "", requirements_fr: "",
+  delivery_mode: "online" as typeof DELIVERY_MODES[number],
+  certificate_deadline: "",
 };
 
 export default function AdminPrograms() {
@@ -62,7 +76,7 @@ export default function AdminPrograms() {
   const load = async () => {
     setLoading(true);
     const [progRes, linkRes, coursesRes] = await Promise.all([
-      supabase.from("programs").select("id,title,title_fr,type,duration,description,description_fr,requirements,requirements_fr,image_url").order("title"),
+      supabase.from("programs").select("id,title,title_fr,type,duration,description,description_fr,requirements,requirements_fr,image_url,delivery_mode,certificate_deadline").order("title"),
       supabase.from("course_programs").select("program_id, course_id"),
       supabase.from("courses").select("id, title, code").order("title"),
     ]);
@@ -103,6 +117,8 @@ export default function AdminPrograms() {
       duration: p.duration ?? "", description: p.description ?? "",
       description_fr: p.description_fr ?? "", requirements: p.requirements ?? "",
       requirements_fr: p.requirements_fr ?? "",
+      delivery_mode: p.delivery_mode ?? "online",
+      certificate_deadline: p.certificate_deadline ?? "",
     });
     setCurrentImageUrl(p.image_url);
     setImageFile(null); setImagePreview(null); setError(null);
@@ -153,6 +169,10 @@ export default function AdminPrograms() {
       setError(lang === "en" ? "English title is required." : "Le titre en anglais est requis.");
       return;
     }
+    if (form.type === "pastoral" && form.delivery_mode === "self_paced") {
+      setError(lang === "en" ? "Pastoral programmes cannot be self-paced." : "Les programmes pastoraux ne peuvent pas être autonomes.");
+      return;
+    }
     setSaving(true); setError(null);
 
     try {
@@ -176,6 +196,10 @@ export default function AdminPrograms() {
         description: form.description.trim() || null, description_fr: form.description_fr.trim() || null,
         requirements: form.requirements.trim() || null, requirements_fr: form.requirements_fr.trim() || null,
         image_url,
+        delivery_mode: form.delivery_mode,
+        // certificate_deadline only means anything for "online" — clear it
+        // otherwise so a stale date doesn't linger if the mode is changed.
+        certificate_deadline: form.delivery_mode === "online" && form.certificate_deadline ? form.certificate_deadline : null,
       };
 
       const { error: err, data: savedRows } = editingId
@@ -261,8 +285,13 @@ export default function AdminPrograms() {
                       <ImageIcon className="w-8 h-8 text-gray-300" strokeWidth={1.5} />
                     </div>
                   )}
-                  <div className="absolute top-3 left-3">
+                  <div className="absolute top-3 left-3 flex gap-1.5">
                     <Badge color={TYPE_COLOR[p.type] ?? "gray"}>{lang === "en" ? typeLabel.en : typeLabel.fr}</Badge>
+                    {p.delivery_mode && (
+                      <Badge color={p.delivery_mode === "online" ? "blue" : p.delivery_mode === "onsite" ? "green" : "yellow"}>
+                        {lang === "en" ? DELIVERY_MODE_LABEL[p.delivery_mode].en : DELIVERY_MODE_LABEL[p.delivery_mode].fr}
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <div className="p-5 flex-1">
@@ -343,6 +372,43 @@ export default function AdminPrograms() {
             <div>
               <label className="label">{lang === "en" ? "Duration" : "Durée"}</label>
               <input type="text" value={form.duration} onChange={e => setF("duration", e.target.value)} placeholder="e.g. 12 months" className="input" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">{lang === "en" ? "Delivery Mode" : "Mode de Livraison"}</label>
+              <select
+                value={form.delivery_mode}
+                onChange={e => setForm(f => ({ ...f, delivery_mode: e.target.value as typeof DELIVERY_MODES[number] }))}
+                className="input"
+              >
+                {DELIVERY_MODES.map(m => (
+                  <option key={m} value={m} disabled={m === "self_paced" && form.type === "pastoral"}>
+                    {lang === "en" ? DELIVERY_MODE_LABEL[m].en : DELIVERY_MODE_LABEL[m].fr}
+                    {m === "self_paced" && form.type === "pastoral" ? (lang === "en" ? " (not available for Pastoral)" : " (indisponible pour Pastoral)") : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                {lang === "en"
+                  ? "Self-paced courses under this programme never require attendance for certificate eligibility — that's disabled automatically."
+                  : "Les cours autonomes de ce programme n'exigent jamais de présence pour l'éligibilité au certificat — désactivé automatiquement."}
+              </p>
+            </div>
+            <div>
+              <label className="label">{lang === "en" ? "Certificate Deadline" : "Date Limite du Certificat"}</label>
+              <input
+                type="date"
+                value={form.certificate_deadline}
+                onChange={e => setF("certificate_deadline", e.target.value)}
+                disabled={form.delivery_mode !== "online"}
+                className="input disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                {form.delivery_mode === "online"
+                  ? (lang === "en" ? "Online students wait until this date to receive their certificate, even if eligible earlier." : "Les étudiants en ligne attendent cette date pour recevoir leur certificat, même s'ils sont éligibles plus tôt.")
+                  : (lang === "en" ? "Only applies to Online programmes." : "S'applique uniquement aux programmes en ligne.")}
+              </p>
             </div>
           </div>
           <div>

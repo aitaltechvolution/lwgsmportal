@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
 import { Search, GraduationCap, ArrowRight, Lock, CheckCircle2 } from "lucide-react";
 import { Badge, EmptyState, SkeletonCard } from "@/components/ui/primitives";
+import MatricNumbersList from "@/components/MatricNumbersList";
 
 interface EnrollmentRow {
   id: string;
@@ -138,6 +139,12 @@ export default function StudentPrograms() {
           </div>
         </div>
       </div>
+
+      {profile?.id && (
+        <div className="mb-6 animate-fade-in-up" style={{ animationDelay: "0.03s" }}>
+          <MatricNumbersList studentId={profile.id} primaryMatric={profile.matric_number ?? null} lang={lang} />
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

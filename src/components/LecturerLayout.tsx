@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
   LayoutGrid, BookOpen, PencilLine, Users, ClipboardCheck, Megaphone,
-  MessageSquare, FolderOpen, User, CalendarCheck,
+  FolderOpen, User, CalendarCheck,
 } from "lucide-react";
 import PortalLayout, { PortalNavItem } from "@/components/PortalLayout";
 
@@ -15,14 +15,10 @@ interface Props {
 
 export default function LecturerLayout({ children, title, breadcrumbs }: Props) {
   const { profile } = useAuth();
-  const [unreadMsg, setUnreadMsg] = useState(0);
   const [pendingSubs, setPendingSubs] = useState(0);
 
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from("messages").select("id", { count: "exact" }).eq("receiver_id", profile.id).eq("is_read", false)
-      .then(({ count }) => setUnreadMsg(count ?? 0));
-
     supabase.from("courses").select("id").eq("lecturer_id", profile.id)
       .then(async ({ data: courses }) => {
         const courseIds = (courses ?? []).map((c: any) => c.id);

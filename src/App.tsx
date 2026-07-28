@@ -18,7 +18,7 @@ import ForgotPassword from "@/pages/auth/ForgotPassword";
 import ResetPassword from "@/pages/auth/ResetPassword";
 import StudentPortal from "@/pages/student/Portal";
 import StudentPrograms from "@/pages/student/Programs";
-import StudentProgramCourses from "@/pages/student/StudentProgramCourses";
+import StudentProgramCourses from "@/pages/student/ProgramCourses";
 import CourseDetail from "@/pages/student/CourseDetail";
 import StudentAssessments from "@/pages/student/Assessments";
 import AssessmentDetail from "@/pages/student/AssessmentDetail";

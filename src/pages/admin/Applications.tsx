@@ -20,9 +20,11 @@ interface Application {
   submitted_at: string;
   work_experience: string | null;
   course_id?: string | null;
+  program_id?: string | null;
   student_id?: string | null;
   payment_status?: string | null;
   payment_reference?: string | null;
+  external_registration_confirmed: boolean;
   programs?: { title: string; type: string } | null;
   courses?: { title: string } | null;
 }
@@ -42,18 +44,62 @@ export default function AdminApplications() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all"|"pending"|"approved"|"rejected">("all");
   const [emailFallback, setEmailFallback] = useState<{ to: string; subject: string; body: string } | null>(null);
+  // Which programme types actually require the external registration
+  // check (admin-configured in Settings) — the checkbox below only
+  // matters for applications to those types; shown either way but noted.
+  const [requiredTypes, setRequiredTypes] = useState<Set<string>>(new Set());
+  // #4: admission letter — tracks which application is currently sending,
+  // so the button can show a loading state and can't be double-clicked.
+  const [sendingLetterId, setSendingLetterId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("applications")
-      .select("*, programs(title, type), courses(title)")
-      .order("submitted_at", { ascending: false });
+    const [{ data }, { data: settingsData }] = await Promise.all([
+      supabase
+        .from("applications")
+        .select("*, programs(title, type), courses(title)")
+        .order("submitted_at", { ascending: false }),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "external_reg_required_certificate", "external_reg_required_diploma", "external_reg_required_pastoral",
+      ]),
+    ]);
     setApps((data ?? []) as Application[]);
+    const settingsMap = new Map((settingsData ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    const required = new Set<string>();
+    if (settingsMap.get("external_reg_required_certificate") === "true") required.add("certificate");
+    if (settingsMap.get("external_reg_required_diploma") === "true") required.add("diploma");
+    if (settingsMap.get("external_reg_required_pastoral") === "true") required.add("pastoral");
+    setRequiredTypes(required);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
+
+  const toggleExternalRegConfirmed = async (a: Application) => {
+    const next = !a.external_registration_confirmed;
+    setApps(prev => prev.map(x => x.id === a.id ? { ...x, external_registration_confirmed: next } : x));
+    const { error } = await supabase.from("applications").update({ external_registration_confirmed: next }).eq("id", a.id);
+    if (error) {
+      setApps(prev => prev.map(x => x.id === a.id ? { ...x, external_registration_confirmed: !next } : x));
+      showToast("error", lang === "en" ? "Could not update — please try again." : "Échec de la mise à jour — réessayez.");
+    }
+  };
+
+  const onSendAdmissionLetter = async (a: Application) => {
+    if (!a.student_id) return;
+    setSendingLetterId(a.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-admission-letter", {
+        body: { studentId: a.student_id, programId: a.program_id ?? null },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Failed to send.");
+      showToast("success", lang === "en" ? "Admission letter sent!" : "Lettre d'admission envoyée !");
+    } catch (err) {
+      showToast("error", (err instanceof Error ? err.message : null) ?? (lang === "en" ? "Could not send the admission letter." : "Échec de l'envoi de la lettre."));
+    } finally {
+      setSendingLetterId(null);
+    }
+  };
 
   const updateStatus = async (id: string, status: "approved"|"rejected") => {
     const app = apps.find(a => a.id === id);
@@ -179,6 +225,27 @@ export default function AdminApplications() {
                           </p>
                         </div>
                       )}
+                      <div className="pt-2 border-t border-gray-200">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={a.external_registration_confirmed}
+                            onChange={() => toggleExternalRegConfirmed(a)}
+                            className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy" />
+                          <span className="text-xs font-bold text-ink">
+                            {lang === "en" ? "Confirmed: completed external registration (e.g. Google Form)" : "Confirmé : inscription externe complétée (ex. Google Form)"}
+                          </span>
+                        </label>
+                        {a.programs?.type && requiredTypes.has(a.programs.type) ? (
+                          <p className="text-xs text-amber-600 mt-1 ml-6">
+                            {lang === "en"
+                              ? "Required for this programme type — the student can't access course content until this is checked."
+                              : "Requis pour ce type de programme — l'étudiant ne pourra pas accéder au contenu tant que ceci n'est pas coché."}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-400 mt-1 ml-6">
+                            {lang === "en" ? "Not required for this programme type — informational only." : "Non requis pour ce type de programme — à titre informatif."}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -200,6 +267,15 @@ export default function AdminApplications() {
                         {lang === "en" ? "Reject" : "Rejeter"}
                       </button>
                     </div>
+                  )}
+                  {a.status === "approved" && a.student_id && (
+                    <button onClick={() => onSendAdmissionLetter(a)} disabled={sendingLetterId === a.id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-navy/5 text-navy border border-navy/15 text-xs font-bold hover:bg-navy hover:text-white transition-colors disabled:opacity-60">
+                      <Mail className="w-3.5 h-3.5" strokeWidth={2.5}/>
+                      {sendingLetterId === a.id
+                        ? (lang === "en" ? "Sending…" : "Envoi…")
+                        : (lang === "en" ? "Send Admission Letter" : "Envoyer la Lettre d'Admission")}
+                    </button>
                   )}
                 </div>
               </div>

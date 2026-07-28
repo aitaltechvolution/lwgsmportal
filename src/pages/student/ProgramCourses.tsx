@@ -4,7 +4,7 @@ import StudentLayout from "@/components/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { useTranslation } from "react-i18next";
-import { Search, BookOpen, User, ArrowRight, Lock, ChevronRight } from "lucide-react";
+import { Search, BookOpen, User, ArrowRight, Lock, ChevronRight, ExternalLink } from "lucide-react";
 import { Badge, ProgressBar, EmptyState, SkeletonCard } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
 
@@ -35,12 +35,18 @@ export default function StudentProgramCourses() {
   const [isPaid, setIsPaid] = useState<boolean | null>(null);
   const [regFee, setRegFee] = useState(0);
   const [regFeeNgn, setRegFeeNgn] = useState(0);
+  // #1: external registration gate — required per programme type,
+  // admin-configured. Checked before the payment gate: no point paying
+  // registration if you haven't even completed the external form yet.
+  const [extRegRequired, setExtRegRequired] = useState(false);
+  const [extRegUrl, setExtRegUrl] = useState("");
+  const [extRegConfirmed, setExtRegConfirmed] = useState(true); // default true so we never flash a false lock before profile loads
 
   const load = useCallback(async () => {
     if (!programId || !profile?.id) return;
     setLoading(true);
 
-    const [progRes, enrRes, payRes, feeRes] = await Promise.all([
+    const [progRes, enrRes, payRes, feeRes, extRegRes, profileRes] = await Promise.all([
       supabase.from("programs").select("id, title, title_fr, type, delivery_mode").eq("id", programId).maybeSingle(),
       supabase
         .from("enrollments")
@@ -52,14 +58,25 @@ export default function StudentProgramCourses() {
         "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral",
         "fee_reg_certificate_selfpaced", "fee_reg_diploma_selfpaced",
       ]),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "external_reg_required_certificate", "external_reg_url_certificate",
+        "external_reg_required_diploma", "external_reg_url_diploma",
+        "external_reg_required_pastoral", "external_reg_url_pastoral",
+      ]),
+      supabase.from("profiles").select("external_registration_confirmed").eq("id", profile.id).maybeSingle(),
     ]);
 
     const prog = progRes.data as Program | null;
     setProgram(prog);
     setEnrollments((enrRes.data ?? []) as unknown as EnrollmentRow[]);
     setIsPaid((payRes.data ?? []).some((p: { status: string; manual_confirmed: boolean }) => p.status === "success" || p.manual_confirmed));
+    setExtRegConfirmed(profileRes.data?.external_registration_confirmed ?? false);
 
     if (prog) {
+      const extMap = new Map((extRegRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+      setExtRegRequired(extMap.get(`external_reg_required_${prog.type}`) === "true");
+      setExtRegUrl(extMap.get(`external_reg_url_${prog.type}`) ?? "");
+
       const feeMap = new Map((feeRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
       const selfPaced = prog.delivery_mode === "self_paced";
       const baseKey = prog.type === "diploma" ? "fee_reg_diploma" : prog.type === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
@@ -110,7 +127,34 @@ export default function StudentProgramCourses() {
     );
   }
 
-  // Gate: a single registration payment for THIS programme unlocks every
+  // Gate 1 (#1): if this programme's type requires the external
+  // registration (e.g. a Google Form) and the admin hasn't confirmed the
+  // student completed it yet, block everything else — including payment.
+  // No point paying before that's sorted out.
+  if (extRegRequired && !extRegConfirmed) {
+    return (
+      <StudentLayout title={programTitle}>
+        <EmptyState icon={ExternalLink}
+          title={lang === "en" ? "Complete Your Registration Form First" : "Complétez D'abord Votre Formulaire d'Inscription"}
+          description={lang === "en"
+            ? `Before continuing with ${programTitle}, you need to complete our registration form. Once our team confirms it, you'll be able to continue here.`
+            : `Avant de continuer avec ${programTitle}, vous devez compléter notre formulaire d'inscription. Une fois notre équipe l'aura confirmé, vous pourrez continuer ici.`}
+          action={
+            extRegUrl ? (
+              <a href={extRegUrl} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex items-center gap-2">
+                {lang === "en" ? "Open Registration Form" : "Ouvrir le Formulaire"}
+                <ExternalLink className="w-4 h-4" strokeWidth={2} />
+              </a>
+            ) : (
+              <p className="text-sm text-slate">{lang === "en" ? "Contact the school office for the registration link." : "Contactez le secrétariat pour le lien d'inscription."}</p>
+            )
+          }
+        />
+      </StudentLayout>
+    );
+  }
+
+  // Gate 2: a single registration payment for THIS programme unlocks every
   // course under it — a student cannot see individual course content
   // until it's paid and confirmed.
   if (isPaid === false) {

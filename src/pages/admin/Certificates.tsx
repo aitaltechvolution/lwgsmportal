@@ -14,14 +14,6 @@ import { useToast } from "@/contexts/ToastContext";
 import CertificatePreviewModal from "@/components/CertificatePreviewModal";
 import { CertificateData } from "@/components/CertificateCard";
 
-// #9: surfaces each student's delivery mode ("type") on the eligibility
-// tables — same labels/colors used on the Students page.
-const DELIVERY_MODE_LABEL: Record<string, { en: string; fr: string; color: "blue" | "green" | "yellow" }> = {
-  online:     { en: "Online",     fr: "En Ligne",  color: "blue" },
-  onsite:     { en: "Onsite",     fr: "Sur Site",   color: "green" },
-  self_paced: { en: "Self-Paced", fr: "Autonome",   color: "yellow" },
-};
-
 interface EligibleRow {
   student_id: string;
   program_id: string;
@@ -36,7 +28,7 @@ interface EligibleRow {
   is_eligible: boolean;
   already_issued: boolean;
   profiles?: { full_name: string; email: string } | null;
-  programs?: { title: string; title_fr: string | null; delivery_mode?: "online" | "onsite" | "self_paced" } | null;
+  programs?: { title: string; title_fr: string | null; delivery_mode?: "online" | "onsite" | "self_paced"; certificate_deadline?: string | null } | null;
 }
 
 interface Cert {
@@ -84,7 +76,7 @@ export default function AdminCertificates() {
     const [allCandidatesRes, certRes] = await Promise.all([
       supabase
         .from("certificate_eligibility")
-        .select("*, profiles:student_id(full_name, email), programs:program_id(title, title_fr, delivery_mode)")
+        .select("*, profiles:student_id(full_name, email), programs:program_id(title, title_fr, delivery_mode, certificate_deadline)")
         .eq("already_issued", false),
       supabase
         .from("certificates")
@@ -128,6 +120,22 @@ export default function AdminCertificates() {
 
   const onIssue = async (row: EligibleRow, override = false) => {
     const key = `${row.student_id}-${row.program_id}`;
+
+    // #11: online programmes hold the certificate until a cohort
+    // deadline passes, even for a student who finished early — self-paced
+    // and onsite have no such wait. An explicit override still lets an
+    // admin bypass this, same as the other automatic requirements.
+    if (!override && row.programs?.delivery_mode === "online" && row.programs?.certificate_deadline) {
+      const deadline = new Date(row.programs.certificate_deadline);
+      if (deadline.getTime() > Date.now()) {
+        const deadlineStr = deadline.toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "long", year: "numeric" });
+        showToast("error", lang === "en"
+          ? `This is an Online programme — certificates aren't released until ${deadlineStr}, even for eligible students.`
+          : `Ce programme est en ligne — les certificats ne sont délivrés qu'à partir du ${deadlineStr}, même pour les étudiants éligibles.`);
+        return;
+      }
+    }
+
     if (override) {
       const ok = window.confirm(
         lang === "en"
@@ -287,16 +295,19 @@ export default function AdminCertificates() {
                   {filteredEligible.map(row => {
                     const key = `${row.student_id}-${row.program_id}`;
                     const progTitle = row.programs ? ((lang === "fr" && row.programs.title_fr) ? row.programs.title_fr : row.programs.title) : "—";
+                    const deliveryMode = row.programs?.delivery_mode;
+                    const deadline = deliveryMode === "online" && row.programs?.certificate_deadline ? new Date(row.programs.certificate_deadline) : null;
+                    const waitingForDeadline = !!deadline && deadline.getTime() > Date.now();
                     return (
                       <tr key={key} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-5 py-3.5"><p className="font-semibold text-ink">{row.profiles?.full_name ?? "—"}</p><p className="text-xs text-gray-400">{row.profiles?.email}</p></td>
                         <td className="px-5 py-3.5 text-ink">{progTitle}</td>
                         <td className="px-5 py-3.5">
-                          {row.programs?.delivery_mode
-                            ? <Badge color={row.programs.delivery_mode === "online" ? "blue" : row.programs.delivery_mode === "onsite" ? "green" : "yellow"}>
+                          {deliveryMode
+                            ? <Badge color={deliveryMode === "online" ? "blue" : deliveryMode === "onsite" ? "green" : "yellow"}>
                                 {lang === "fr"
-                                  ? (row.programs.delivery_mode === "online" ? "En Ligne" : row.programs.delivery_mode === "onsite" ? "Sur Site" : "Autonome")
-                                  : (row.programs.delivery_mode === "online" ? "Online" : row.programs.delivery_mode === "onsite" ? "Onsite" : "Self-Paced")}
+                                  ? (deliveryMode === "online" ? "En Ligne" : deliveryMode === "onsite" ? "Sur Site" : "Autonome")
+                                  : (deliveryMode === "online" ? "Online" : deliveryMode === "onsite" ? "Onsite" : "Self-Paced")}
                               </Badge>
                             : <span className="text-xs text-gray-400">—</span>}
                         </td>
@@ -307,14 +318,28 @@ export default function AdminCertificates() {
                             : <Badge color={row.attendance_pct >= 75 ? "green" : row.attendance_pct >= 50 ? "orange" : "red"}>{row.attendance_pct}%</Badge>}
                         </td>
                         <td className="px-5 py-3.5">
-                          <button
-                            onClick={() => onIssue(row)}
-                            disabled={issuingKey === key}
-                            className="flex items-center gap-1.5 text-xs font-bold text-white bg-navy hover:bg-navy-light px-3.5 py-2 rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap"
-                          >
-                            {issuingKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2.5} /> : <Award className="w-3.5 h-3.5" strokeWidth={2} />}
-                            {lang === "en" ? "Issue Certificate" : "Émettre le Certificat"}
-                          </button>
+                          {waitingForDeadline ? (
+                            <div className="flex flex-col items-start gap-1">
+                              <Badge color="yellow">
+                                {lang === "en"
+                                  ? `Waiting until ${deadline!.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+                                  : `En attente jusqu'au ${deadline!.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}`}
+                              </Badge>
+                              <button onClick={() => onIssue(row, true)} disabled={issuingKey === key}
+                                className="text-xs font-semibold text-slate hover:text-navy underline transition-colors">
+                                {lang === "en" ? "Override & issue now" : "Outrepasser et émettre"}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => onIssue(row)}
+                              disabled={issuingKey === key}
+                              className="flex items-center gap-1.5 text-xs font-bold text-white bg-navy hover:bg-navy-light px-3.5 py-2 rounded-lg transition-colors disabled:opacity-60 whitespace-nowrap"
+                            >
+                              {issuingKey === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2.5} /> : <Award className="w-3.5 h-3.5" strokeWidth={2} />}
+                              {lang === "en" ? "Issue Certificate" : "Émettre le Certificat"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

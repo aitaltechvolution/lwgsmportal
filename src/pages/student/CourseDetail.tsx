@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import {
   Search, BookOpen, FileText, Video, Paperclip, Lock, Eye,
   ClipboardList, GraduationCap, Clock, Award, Mail, FolderOpen, X,
-  ChevronRight, CheckCircle2, Download, CalendarCheck, Link2,
+  ChevronRight, CheckCircle2, Download, CalendarCheck, Link2, ExternalLink,
 } from "lucide-react";
 import { Badge, ProgressBar, EmptyState, SkeletonRow } from "@/components/ui/primitives";
 import { useCurrency } from "@/contexts/CurrencyContext";
@@ -92,6 +92,12 @@ export default function CourseDetail() {
   // what actually gets charged/recorded. registrationFee (USD) is derived
   // from it for display only and must never be converted back to NGN.
   const [registrationFeeNgn, setRegistrationFeeNgn] = useState<number>(10000);
+  // #1: external registration gate, checked as a defensive fallback here
+  // too (in case a student reaches a course URL directly) — the primary
+  // check happens one level up on ProgramCourses.tsx.
+  const [extRegRequired, setExtRegRequired] = useState(false);
+  const [extRegUrl, setExtRegUrl] = useState("");
+  const [extRegConfirmed, setExtRegConfirmed] = useState(true);
   const [viewingMat, setViewingMat]   = useState<Material | null>(null);
   const [readingMat, setReadingMat]   = useState<Material | null>(null);
 
@@ -104,7 +110,7 @@ export default function CourseDetail() {
     if (!id || !profile?.id) return;
     setLoading(true);
 
-    const [cRes, mRes, aRes, subRes, eRes, unlockRes, regRes, regFeeRes] = await Promise.all([
+    const [cRes, mRes, aRes, subRes, eRes, unlockRes, regRes, regFeeRes, extRegRes, profileRes] = await Promise.all([
       supabase.from("courses")
         .select("*, programs!courses_program_id_fkey(title,title_fr,type,delivery_mode), profiles(full_name,title,email)")
         .eq("id", id).maybeSingle(),
@@ -129,10 +135,20 @@ export default function CourseDetail() {
         "fee_reg_certificate", "fee_reg_diploma", "fee_reg_pastoral",
         "fee_reg_certificate_selfpaced", "fee_reg_diploma_selfpaced",
       ]),
+      supabase.from("site_settings").select("key, value").in("key", [
+        "external_reg_required_certificate", "external_reg_url_certificate",
+        "external_reg_required_diploma", "external_reg_url_diploma",
+        "external_reg_required_pastoral", "external_reg_url_pastoral",
+      ]),
+      supabase.from("profiles").select("external_registration_confirmed").eq("id", profile.id).maybeSingle(),
     ]);
 
     const course = cRes.data as Course | null;
     const progType = course?.programs?.type ?? "certificate";
+    const extMap = new Map((extRegRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    setExtRegRequired(extMap.get(`external_reg_required_${progType}`) === "true");
+    setExtRegUrl(extMap.get(`external_reg_url_${progType}`) ?? "");
+    setExtRegConfirmed(profileRes.data?.external_registration_confirmed ?? false);
     const feeMap = new Map((regFeeRes.data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
     const baseFeeKey = progType === "diploma" ? "fee_reg_diploma" : progType === "pastoral" ? "fee_reg_pastoral" : "fee_reg_certificate";
     // Self-paced pricing only exists for Diploma/Certificate — Pastoral
@@ -313,6 +329,29 @@ export default function CourseDetail() {
           title={lang === "en" ? "Course not found" : "Cours introuvable"}
           description={lang === "en" ? "This course may have been removed or is not yet published." : "Ce cours a peut-être été retiré ou n'est pas encore publié."}
           action={<Link to="/student/courses" className="btn-outline">{lang === "en" ? "Back to My Programmes" : "Retour aux Programmes"}</Link>}
+        />
+      </StudentLayout>
+    );
+  }
+
+  if (extRegRequired && !extRegConfirmed) {
+    return (
+      <StudentLayout>
+        <EmptyState icon={ExternalLink}
+          title={lang === "en" ? "Complete Your Registration Form First" : "Complétez D'abord Votre Formulaire d'Inscription"}
+          description={lang === "en"
+            ? "Before accessing course content, you need to complete our registration form. Once our team confirms it, you'll be able to continue."
+            : "Avant d'accéder au contenu des cours, vous devez compléter notre formulaire d'inscription. Une fois notre équipe l'aura confirmé, vous pourrez continuer."}
+          action={
+            extRegUrl ? (
+              <a href={extRegUrl} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex items-center gap-2">
+                {lang === "en" ? "Open Registration Form" : "Ouvrir le Formulaire"}
+                <ExternalLink className="w-4 h-4" strokeWidth={2} />
+              </a>
+            ) : (
+              <p className="text-sm text-slate">{lang === "en" ? "Contact the school office for the registration link." : "Contactez le secrétariat pour le lien d'inscription."}</p>
+            )
+          }
         />
       </StudentLayout>
     );

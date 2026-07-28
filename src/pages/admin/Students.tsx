@@ -20,6 +20,10 @@ interface StudentRow {
   status: "active" | "suspended";
   created_at: string;
   program?: string | null;
+  // The delivery mode of the student's (first active) programme —
+  // online / onsite / self_paced — surfaced so admin can sort/filter by
+  // it directly (see #10).
+  delivery_mode?: "online" | "onsite" | "self_paced" | null;
   avatar_url?: string | null;
   matric_number?: string | null;
 }
@@ -34,6 +38,10 @@ export default function AdminStudents() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended">("all");
+  // #10: sort alphabetically or by application order, and filter by the
+  // student's programme delivery mode.
+  const [sortBy, setSortBy] = useState<"name" | "applied">("name");
+  const [typeFilter, setTypeFilter] = useState<"all" | "online" | "onsite" | "self_paced">("all");
   const [actionMenu, setActionMenu] = useState<string | null>(null);
 
   // Add Student modal
@@ -58,18 +66,20 @@ export default function AdminStudents() {
       const ids = list.map(s => s.id);
       const { data: enrData } = await supabase
         .from("enrollments")
-        .select("student_id, programs(title, title_fr)")
+        .select("student_id, programs(title, title_fr, delivery_mode)")
         .in("student_id", ids)
         .eq("status", "active");
 
       const programMap = new Map<string, string>();
-      (enrData as unknown as { student_id: string; programs?: { title: string; title_fr?: string } | null }[] ?? []).forEach(e => {
+      const deliveryModeMap = new Map<string, "online" | "onsite" | "self_paced">();
+      (enrData as unknown as { student_id: string; programs?: { title: string; title_fr?: string; delivery_mode?: "online" | "onsite" | "self_paced" } | null }[] ?? []).forEach(e => {
         if (!programMap.has(e.student_id) && e.programs) {
           programMap.set(e.student_id, (lang === "fr" && e.programs.title_fr) ? e.programs.title_fr : e.programs.title);
+          if (e.programs.delivery_mode) deliveryModeMap.set(e.student_id, e.programs.delivery_mode);
         }
       });
 
-      list.forEach(s => { s.program = programMap.get(s.id) ?? null; });
+      list.forEach(s => { s.program = programMap.get(s.id) ?? null; s.delivery_mode = deliveryModeMap.get(s.id) ?? null; });
     }
 
     setStudents(list);
@@ -80,11 +90,17 @@ export default function AdminStudents() {
 
   const filtered = students
     .filter(s => statusFilter === "all" || s.status === statusFilter)
+    .filter(s => typeFilter === "all" || s.delivery_mode === typeFilter)
     .filter(s => {
       if (!search) return true;
       const q = search.toLowerCase();
       return s.full_name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.country?.toLowerCase().includes(q);
-    });
+    })
+    .sort((a, b) =>
+      sortBy === "name"
+        ? a.full_name.localeCompare(b.full_name)
+        : new Date(a.created_at).getTime() - new Date(b.created_at).getTime() // order of application — oldest (first applicant) first
+    );
 
   const toggleSuspend = async (s: StudentRow) => {
     const next: "active" | "suspended" = s.status === "active" ? "suspended" : "active";
@@ -169,6 +185,10 @@ export default function AdminStudents() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
             <input type="text" placeholder={lang === "en" ? "Search students…" : "Rechercher…"} value={search} onChange={e => setSearch(e.target.value)} className="input pl-9" />
           </div>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as "name" | "applied")} className="input w-auto flex-shrink-0">
+            <option value="name">{lang === "en" ? "Sort: A–Z" : "Trier : A-Z"}</option>
+            <option value="applied">{lang === "en" ? "Sort: Order of Application" : "Trier : Ordre de Candidature"}</option>
+          </select>
           <button onClick={() => { setShowAddModal(true); setError(null); setSuccess(false); }} className="btn-primary flex-shrink-0">
             <Plus className="w-4 h-4" strokeWidth={2.5} />
             {lang === "en" ? "Add Student" : "Ajouter"}
@@ -177,12 +197,26 @@ export default function AdminStudents() {
       </div>
 
       {/* Status filter */}
-      <div className="flex gap-1.5 mb-6 bg-gray-100 p-1 rounded-xl w-fit animate-fade-in-up" style={{ animationDelay: "0.04s" }}>
+      <div className="flex flex-wrap gap-1.5 mb-3 bg-gray-100 p-1 rounded-xl w-fit animate-fade-in-up" style={{ animationDelay: "0.04s" }}>
         {(["all", "active", "suspended"] as const).map(f => (
           <button key={f} onClick={() => setStatusFilter(f)}
             className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-150 ${statusFilter === f ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
             {f === "all" ? (lang === "en" ? "All" : "Tous") : f === "active" ? (lang === "en" ? "Active" : "Actifs") : (lang === "en" ? "Suspended" : "Suspendus")}
             <span className="ml-1 text-xs opacity-60">{f === "all" ? students.length : students.filter(s => s.status === f).length}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Type (delivery mode) filter — #10 */}
+      <div className="flex flex-wrap gap-1.5 mb-6 bg-gray-100 p-1 rounded-xl w-fit animate-fade-in-up" style={{ animationDelay: "0.06s" }}>
+        {(["all", "online", "onsite", "self_paced"] as const).map(f => (
+          <button key={f} onClick={() => setTypeFilter(f)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-150 ${typeFilter === f ? "bg-white text-navy shadow-sm" : "text-slate hover:text-ink"}`}>
+            {f === "all" ? (lang === "en" ? "All Types" : "Tous Types")
+              : f === "online" ? (lang === "en" ? "Online" : "En Ligne")
+              : f === "onsite" ? (lang === "en" ? "Onsite" : "Sur Site")
+              : (lang === "en" ? "Self-Paced" : "Autonome")}
+            <span className="ml-1 text-xs opacity-60">{f === "all" ? students.length : students.filter(s => s.delivery_mode === f).length}</span>
           </button>
         ))}
       </div>
@@ -203,6 +237,7 @@ export default function AdminStudents() {
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden lg:table-cell">{lang === "en" ? "Phone" : "Téléphone"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden lg:table-cell">{lang === "en" ? "Country" : "Pays"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "Program" : "Programme"}</th>
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden md:table-cell">{lang === "en" ? "Type" : "Type"}</th>
                   <th className="text-center px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Status" : "Statut"}</th>
                   <th className="text-left px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider hidden sm:table-cell">{lang === "en" ? "Joined" : "Inscrit"}</th>
                   <th className="text-right px-5 py-3 text-xs font-bold text-slate uppercase tracking-wider">{lang === "en" ? "Actions" : "Actions"}</th>
@@ -224,6 +259,15 @@ export default function AdminStudents() {
                     <td className="px-5 py-3.5 text-gray-400 hidden lg:table-cell">{s.phone ?? "—"}</td>
                     <td className="px-5 py-3.5 text-gray-400 hidden lg:table-cell">{s.country ?? "—"}</td>
                     <td className="px-5 py-3.5 text-ink hidden md:table-cell">{s.program ?? <span className="text-gray-400 italic">{lang === "en" ? "Unassigned" : "Non assigné"}</span>}</td>
+                    <td className="px-5 py-3.5 hidden md:table-cell">
+                      {s.delivery_mode
+                        ? <Badge color={s.delivery_mode === "online" ? "blue" : s.delivery_mode === "onsite" ? "green" : "yellow"}>
+                            {lang === "fr"
+                              ? (s.delivery_mode === "online" ? "En Ligne" : s.delivery_mode === "onsite" ? "Sur Site" : "Autonome")
+                              : (s.delivery_mode === "online" ? "Online" : s.delivery_mode === "onsite" ? "Onsite" : "Self-Paced")}
+                          </Badge>
+                        : <span className="text-xs text-gray-400">—</span>}
+                    </td>
                     <td className="px-5 py-3.5 text-center">
                       <Badge color={s.status === "active" ? "green" : "red"}>
                         {s.status === "active" ? (lang === "en" ? "Active" : "Actif") : (lang === "en" ? "Suspended" : "Suspendu")}
