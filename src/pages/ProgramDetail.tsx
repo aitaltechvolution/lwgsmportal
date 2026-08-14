@@ -13,6 +13,8 @@ interface Program {
   description?: string | null;
   description_fr?: string | null;
   image_url?: string | null;
+  applications_open?: boolean;
+  applications_resume_date?: string | null;
 }
 
 interface Course {
@@ -43,7 +45,7 @@ export default function ProgramDetail() {
     Promise.all([
       supabase
         .from("programs")
-        .select("id,title,title_fr,type,duration,description,description_fr,image_url")
+        .select("id,title,title_fr,type,duration,description,description_fr,image_url,applications_open,applications_resume_date")
         .eq("id", id)
         .maybeSingle(),
       supabase
@@ -189,10 +191,25 @@ export default function ProgramDetail() {
                 </div>
               </div>
             </div>
-            <Link to={`/admissions?program=${id}`} className="btn-primary w-full flex items-center justify-center gap-2">
-              {lang === "en" ? "Apply Now" : "Candidater"}
-              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-            </Link>
+            {program.applications_open === false ? (
+              <div className="w-full text-center bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                <p className="text-sm font-bold text-red-600">
+                  {lang === "en" ? "Admissions Closed" : "Admissions Fermées"}
+                </p>
+                <p className="text-xs text-red-400 mt-1">
+                  {program.applications_resume_date
+                    ? (lang === "en"
+                        ? `Applications reopen on ${new Date(program.applications_resume_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.`
+                        : `Les candidatures reprennent le ${new Date(program.applications_resume_date).toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" })}.`)
+                    : (lang === "en" ? "This programme isn't accepting new applications right now." : "Ce programme n'accepte pas de nouvelles candidatures pour le moment.")}
+                </p>
+              </div>
+            ) : (
+              <Link to={`/admissions?program=${id}`} className="btn-primary w-full flex items-center justify-center gap-2">
+                {lang === "en" ? "Apply Now" : "Candidater"}
+                <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+              </Link>
+            )}
             <Link to="/contact" className="flex items-center justify-center gap-2 w-full border border-navy/15 text-navy hover:bg-navy hover:text-white font-semibold py-2.5 rounded-xl transition-all duration-200 text-sm">
               <MessageCircle className="w-4 h-4" strokeWidth={2} />
               {lang === "en" ? "Ask a Question" : "Poser une Question"}

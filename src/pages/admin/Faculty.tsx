@@ -229,7 +229,9 @@ export default function AdminFaculty() {
     // Uses the delete-account edge function (service role) so the
     // underlying auth.users record is removed too, not just the profile
     // row — otherwise the email stays "registered" forever and can't be
-    // reused for a new lecturer account.
+    // reused for a new lecturer account. It also runs a diagnostic to
+    // report exactly which table is blocking the delete if it fails,
+    // instead of Supabase Auth's generic "Database error deleting user".
     const { data, error: fnErr } = await supabase.functions.invoke("delete-account", {
       body: { userId: l.id },
     });

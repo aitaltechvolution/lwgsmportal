@@ -127,7 +127,8 @@ export default function AdminStudents() {
     // that email is registered, which later blocks the student from
     // reapplying and from getting a fresh account at approval time. This
     // edge function removes the auth user too (which cascades to remove
-    // the profile row automatically).
+    // the profile row automatically) and reports exactly what's blocking
+    // the delete if it fails.
     const { data, error: fnErr } = await supabase.functions.invoke("delete-account", {
       body: { userId: s.id },
     });

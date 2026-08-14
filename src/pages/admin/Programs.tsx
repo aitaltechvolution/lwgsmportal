@@ -23,6 +23,10 @@ interface Program {
   // eligible still waits until this date to actually receive the
   // certificate. Self-paced and onsite ignore this entirely.
   certificate_deadline: string | null;
+  // Lets an admin close applications for this programme without hiding
+  // the programme itself from the public site.
+  applications_open: boolean;
+  applications_resume_date: string | null;
   courseCount?: number;
 }
 
@@ -48,6 +52,8 @@ const EMPTY_FORM = {
   duration: "", description: "", description_fr: "", requirements: "", requirements_fr: "",
   delivery_mode: "online" as typeof DELIVERY_MODES[number],
   certificate_deadline: "",
+  applications_open: true,
+  applications_resume_date: "",
 };
 
 export default function AdminPrograms() {
@@ -76,7 +82,7 @@ export default function AdminPrograms() {
   const load = async () => {
     setLoading(true);
     const [progRes, linkRes, coursesRes] = await Promise.all([
-      supabase.from("programs").select("id,title,title_fr,type,duration,description,description_fr,requirements,requirements_fr,image_url,delivery_mode,certificate_deadline").order("title"),
+      supabase.from("programs").select("id,title,title_fr,type,duration,description,description_fr,requirements,requirements_fr,image_url,delivery_mode,certificate_deadline,applications_open,applications_resume_date").order("title"),
       supabase.from("course_programs").select("program_id, course_id"),
       supabase.from("courses").select("id, title, code").order("title"),
     ]);
@@ -119,6 +125,8 @@ export default function AdminPrograms() {
       requirements_fr: p.requirements_fr ?? "",
       delivery_mode: p.delivery_mode ?? "online",
       certificate_deadline: p.certificate_deadline ?? "",
+      applications_open: p.applications_open ?? true,
+      applications_resume_date: p.applications_resume_date ?? "",
     });
     setCurrentImageUrl(p.image_url);
     setImageFile(null); setImagePreview(null); setError(null);
@@ -200,6 +208,10 @@ export default function AdminPrograms() {
         // certificate_deadline only means anything for "online" — clear it
         // otherwise so a stale date doesn't linger if the mode is changed.
         certificate_deadline: form.delivery_mode === "online" && form.certificate_deadline ? form.certificate_deadline : null,
+        applications_open: form.applications_open,
+        // Only meaningful while closed — clear it if applications are open
+        // so a stale date doesn't linger and confuse a later closure.
+        applications_resume_date: !form.applications_open && form.applications_resume_date ? form.applications_resume_date : null,
       };
 
       const { error: err, data: savedRows } = editingId
@@ -291,6 +303,9 @@ export default function AdminPrograms() {
                       <Badge color={p.delivery_mode === "online" ? "blue" : p.delivery_mode === "onsite" ? "green" : "yellow"}>
                         {lang === "en" ? DELIVERY_MODE_LABEL[p.delivery_mode].en : DELIVERY_MODE_LABEL[p.delivery_mode].fr}
                       </Badge>
+                    )}
+                    {!p.applications_open && (
+                      <Badge color="red">{lang === "en" ? "Admissions Closed" : "Admissions Fermées"}</Badge>
                     )}
                   </div>
                 </div>
@@ -408,6 +423,40 @@ export default function AdminPrograms() {
                 {form.delivery_mode === "online"
                   ? (lang === "en" ? "Online students wait until this date to receive their certificate, even if eligible earlier." : "Les étudiants en ligne attendent cette date pour recevoir leur certificat, même s'ils sont éligibles plus tôt.")
                   : (lang === "en" ? "Only applies to Online programmes." : "S'applique uniquement aux programmes en ligne.")}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 border border-gray-100 rounded-xl p-4">
+            <div>
+              <label className="label">{lang === "en" ? "Admissions Status" : "Statut des Admissions"}</label>
+              <select
+                value={form.applications_open ? "open" : "closed"}
+                onChange={e => setForm(f => ({ ...f, applications_open: e.target.value === "open" }))}
+                className="input"
+              >
+                <option value="open">{lang === "en" ? "Open — accepting applications" : "Ouvert — candidatures acceptées"}</option>
+                <option value="closed">{lang === "en" ? "Closed — applications paused" : "Fermé — candidatures suspendues"}</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                {lang === "en"
+                  ? "The programme still shows publicly either way — this only controls whether students can apply. Closed programmes show \"Admissions Closed\" instead of an Apply option."
+                  : "Le programme reste visible publiquement dans les deux cas — ceci contrôle seulement si les étudiants peuvent postuler. Les programmes fermés affichent « Admissions Fermées » au lieu d'un bouton Postuler."}
+              </p>
+            </div>
+            <div>
+              <label className="label">{lang === "en" ? "Resumption Date" : "Date de Reprise"}</label>
+              <input
+                type="date"
+                value={form.applications_resume_date}
+                onChange={e => setF("applications_resume_date", e.target.value)}
+                disabled={form.applications_open}
+                className="input disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                {form.applications_open
+                  ? (lang === "en" ? "Only applies while admissions are closed." : "S'applique uniquement lorsque les admissions sont fermées.")
+                  : (lang === "en" ? "Optional. If set, students see the date admissions reopen. If left blank, they just see \"Admissions Closed\"." : "Optionnel. Si renseignée, les étudiants voient la date de réouverture. Sinon, ils voient simplement « Admissions Fermées ».")}
               </p>
             </div>
           </div>

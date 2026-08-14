@@ -59,6 +59,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [transferClaimed, setTransferClaimed] = useState(false);
+  const [transferReference, setTransferReference] = useState("");
 
   // Registration is programme-scoped now — a single payment unlocks every
   // course under a programme (see the registration gate on
@@ -87,6 +88,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
     if (!open || !profile) return;
     setError(null);
     setTransferClaimed(false);
+    setTransferReference("");
     setMethod("paystack");
     setSelectedProgramId("");
     setSelectedCertificateId("");
@@ -217,6 +219,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
   const needsProgram = type === "registration";
   const needsCertificate = type === "certificate";
   const canSubmit = amountValid && (!needsProgram || !!selectedProgramId) && (!needsCertificate || !!selectedCertificateId);
+  const canSubmitTransfer = canSubmit && transferReference.trim().length > 0;
   const certDescription = selectedCertificate ? `Certificate collection — ${selectedCertificate.certificate_number}` : undefined;
 
   const onPayOnline = async () => {
@@ -260,13 +263,13 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
     if (!amountValid) { setError(lang === "en" ? "Enter a valid amount." : "Entrez un montant valide."); return; }
     if (needsProgram && !selectedProgramId) { setError(lang === "en" ? "Select which programme this registration is for." : "Sélectionnez le programme concerné."); return; }
     if (needsCertificate && !selectedCertificateId) { setError(lang === "en" ? "Select which certificate this fee is for." : "Sélectionnez le certificat concerné."); return; }
+    if (!transferReference.trim()) { setError(lang === "en" ? "Enter the transaction reference from your bank transfer receipt." : "Entrez la référence de transaction de votre reçu de virement."); return; }
     setSubmitting(true);
     setError(null);
     try {
       const amountNgn = (selectedType.feeSettingKey && fixedNgn[selectedType.feeSettingKey])
         ? fixedNgn[selectedType.feeSettingKey]
         : Math.round(amountNum * exchangeRate * 100) / 100;
-      const reference = `bank-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const { error: insErr } = await supabase.from("payments").insert({
         student_id: profile.id,
         type,
@@ -276,7 +279,9 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
         amount_ngn: amountNgn,
         method: "bank_transfer",
         status: "pending",
-        reference,
+        // The real ID an admin can actually check against the bank
+        // statement — not an internally-generated placeholder.
+        transfer_reference: transferReference.trim(),
         program_id: needsProgram ? selectedProgramId : null,
         description: needsCertificate ? certDescription : null,
       });
@@ -433,6 +438,17 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
                   ? "After transferring, click below to notify us. An admin will confirm your payment once the transfer reflects."
                   : "Après le virement, cliquez ci-dessous pour nous prévenir. Un administrateur confirmera votre paiement."}
               </p>
+              <div>
+                <label className="label">{lang === "en" ? "Transaction Reference" : "Référence de Transaction"}</label>
+                <input type="text" value={transferReference} onChange={(e) => setTransferReference(e.target.value)}
+                  placeholder={lang === "en" ? "e.g. the reference on your bank receipt/SMS" : "ex. la référence sur votre reçu/SMS bancaire"}
+                  className="input" />
+                <p className="text-xs text-gray-400 mt-1">
+                  {lang === "en"
+                    ? "This is what the admin will check against your bank statement — please enter it exactly as it appears on your receipt."
+                    : "C'est ce que l'administrateur vérifiera avec votre relevé bancaire — veuillez le saisir exactement comme sur votre reçu."}
+                </p>
+              </div>
             </div>
           )}
 
@@ -444,7 +460,7 @@ export default function PaymentModal({ open, onClose, lang, onCompleted }: Props
               {submitting ? (lang === "en" ? "Processing…" : "Traitement…") : (lang === "en" ? "Pay Online" : "Payer en Ligne")}
             </button>
           ) : (
-            <button onClick={onClaimTransfer} disabled={submitting || !canSubmit || displayAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
+            <button onClick={onClaimTransfer} disabled={submitting || !canSubmitTransfer || displayAccounts.length === 0} className="btn-primary w-full py-3 disabled:opacity-60 disabled:translate-y-0">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} /> : <Check className="w-4 h-4" strokeWidth={2} />}
               {lang === "en" ? "I've Made the Transfer" : "J'ai Effectué le Virement"}
             </button>

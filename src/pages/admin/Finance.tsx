@@ -28,6 +28,13 @@ interface Payment {
   status: "pending" | "success" | "failed";
   method: string | null;
   reference: string | null;
+  // The actual bank transaction ID/reference the student typed in when
+  // claiming a bank transfer — distinct from `reference`, which for
+  // Paystack payments is the real Paystack transaction reference, but
+  // for older/other bank-transfer rows could be a meaningless
+  // internally-generated placeholder. This is the one that actually
+  // matters for verifying a bank transfer against a bank statement.
+  transfer_reference: string | null;
   receipt_number: string | null;
   description: string | null;
   paid_at: string | null;
@@ -121,6 +128,14 @@ export default function AdminFinance() {
   // amount_usd is the canonical figure; amount/currency are kept for legacy
   // rows recorded before the USD ledger migration (treated as already USD).
   const usdOf = (p: Payment) => p.amount_usd ?? p.amount;
+  // Which ID actually matters depends on the payment method: for Paystack,
+  // `reference` IS the real Paystack transaction reference — the
+  // authoritative ID. For a bank transfer, the only real, checkable ID is
+  // whatever the student typed in from their bank receipt/SMS
+  // (`transfer_reference`); `reference` on those rows is either empty or,
+  // on older rows, a meaningless internally-generated placeholder that
+  // tells an admin nothing. Never show that placeholder.
+  const realIdOf = (p: Payment) => (p.method === "bank_transfer" ? p.transfer_reference : p.reference);
   // Registration fees are entered by the admin in exact Naira. amount_usd
   // is only a derived approximation of that for USD/EUR display — feeding
   // it back through format() when the display currency is NGN re-converts
@@ -142,7 +157,7 @@ export default function AdminFinance() {
       if (search) {
         const q = search.toLowerCase();
         const student = p.profiles as { full_name?: string; email?: string } | null;
-        const haystack = [student?.full_name, student?.email, p.reference, p.receipt_number, p.type].filter(Boolean).join(" ").toLowerCase();
+        const haystack = [student?.full_name, student?.email, p.reference, p.transfer_reference, p.receipt_number, p.type].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -238,7 +253,7 @@ export default function AdminFinance() {
         p.method ?? "",
         usdOf(p).toFixed(2),
         p.status,
-        p.reference ?? "",
+        realIdOf(p) ?? "",
         p.receipt_number ?? "",
       ];
     });
@@ -379,7 +394,7 @@ export default function AdminFinance() {
                       <td className="px-5 py-3.5 text-ink">{typeLabel(p.type, lang)}</td>
                       <td className="px-5 py-3.5 text-xs text-slate capitalize">{p.method === "bank_transfer" ? (lang === "en" ? "Bank Transfer" : "Virement") : "Paystack"}</td>
                       <td className="px-5 py-3.5 font-bold text-ink whitespace-nowrap">{fmtAmount(p)}</td>
-                      <td className="px-5 py-3.5 text-xs text-gray-400 font-mono">{p.reference ?? "—"}</td>
+                      <td className="px-5 py-3.5 text-xs text-gray-400 font-mono">{realIdOf(p) ?? "—"}</td>
                       <td className="px-5 py-3.5"><Badge color={STATUS_COLOR[p.status]}>{lang === "en" ? STATUS_LABEL[p.status].en : STATUS_LABEL[p.status].fr}</Badge></td>
                       <td className="px-5 py-3.5 text-gray-400 text-xs whitespace-nowrap">{fmtDate(p.paid_at ?? p.created_at)}</td>
                       <td className="px-5 py-3.5">

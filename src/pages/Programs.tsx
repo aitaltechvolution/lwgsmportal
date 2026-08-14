@@ -13,6 +13,8 @@ interface Program {
   short_desc?: string | null;
   short_desc_fr?: string | null;
   image_url?: string | null;
+  applications_open?: boolean;
+  applications_resume_date?: string | null;
 }
 
 const FILTERS = [
@@ -61,7 +63,7 @@ export default function Programs() {
   useEffect(() => {
     supabase
       .from("programs")
-      .select("id,title,title_fr,type,duration,short_desc,short_desc_fr,image_url")
+      .select("id,title,title_fr,type,duration,short_desc,short_desc_fr,image_url,applications_open,applications_resume_date")
       .order("type")
       .order("title")
       .then(({ data, error }) => {
@@ -140,6 +142,11 @@ export default function Programs() {
                 <span className={`absolute top-3 left-3 text-xs font-bold px-2 py-0.5 rounded-full ${BADGE[p.type] ?? "bg-gray-100 text-gray-600"}`}>
                   {p.type.charAt(0).toUpperCase() + p.type.slice(1)}
                 </span>
+                {p.applications_open === false && (
+                  <span className="absolute top-3 right-3 text-xs font-bold px-2 py-0.5 rounded-full bg-red-500 text-white">
+                    {lang === "en" ? "Admissions Closed" : "Admissions Fermées"}
+                  </span>
+                )}
               </div>
               <div className="p-5 flex flex-col gap-2 flex-1">
                 <h3 className="font-bold text-ink text-base leading-snug group-hover:text-brand transition-colors">

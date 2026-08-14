@@ -76,6 +76,15 @@ export default function AdminApplications() {
   useEffect(() => { load(); }, []);
 
   const toggleExternalRegConfirmed = async (a: Application) => {
+    // Belt-and-suspenders: the checkbox is already disabled in the UI
+    // until the application is approved and paid for, but guard here too
+    // in case this is ever called from elsewhere.
+    if (a.status !== "approved" || a.payment_status !== "success") {
+      showToast("error", lang === "en"
+        ? "The application must be approved and paid for before registration can be confirmed."
+        : "La candidature doit être approuvée et payée avant de confirmer l'inscription.");
+      return;
+    }
     const next = !a.external_registration_confirmed;
     setApps(prev => prev.map(x => x.id === a.id ? { ...x, external_registration_confirmed: next } : x));
     const { error } = await supabase.from("applications").update({ external_registration_confirmed: next }).eq("id", a.id);
@@ -237,25 +246,46 @@ export default function AdminApplications() {
                         </div>
                       )}
                       <div className="pt-2 border-t border-gray-200">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={a.external_registration_confirmed}
-                            onChange={() => toggleExternalRegConfirmed(a)}
-                            className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy" />
-                          <span className="text-xs font-bold text-ink">
-                            {lang === "en" ? "Confirmed: completed external registration (e.g. Google Form)" : "Confirmé : inscription externe complétée (ex. Google Form)"}
-                          </span>
-                        </label>
-                        {a.programs?.type && requiredTypes.has(a.programs.type) ? (
-                          <p className="text-xs text-amber-600 mt-1 ml-6">
-                            {lang === "en"
-                              ? "Required for this programme type — the student can't access course content until this is checked."
-                              : "Requis pour ce type de programme — l'étudiant ne pourra pas accéder au contenu tant que ceci n'est pas coché."}
-                          </p>
-                        ) : (
-                          <p className="text-xs text-gray-400 mt-1 ml-6">
-                            {lang === "en" ? "Not required for this programme type — informational only." : "Non requis pour ce type de programme — à titre informatif."}
-                          </p>
-                        )}
+                        {(() => {
+                          const isApproved = a.status === "approved";
+                          const isPaid = a.payment_status === "success";
+                          // Flow order is Approval -> Payment -> Registration:
+                          // a student can't be marked as having completed
+                          // external registration until they've been
+                          // approved AND their payment has gone through.
+                          const canConfirmRegistration = isApproved && isPaid;
+                          return (
+                            <>
+                              <label className={`flex items-center gap-2 ${canConfirmRegistration ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                                <input type="checkbox" checked={a.external_registration_confirmed}
+                                  disabled={!canConfirmRegistration}
+                                  onChange={() => toggleExternalRegConfirmed(a)}
+                                  className="w-4 h-4 rounded border-gray-300 text-navy focus:ring-navy disabled:cursor-not-allowed" />
+                                <span className="text-xs font-bold text-ink">
+                                  {lang === "en" ? "Confirmed: completed external registration (e.g. Google Form)" : "Confirmé : inscription externe complétée (ex. Google Form)"}
+                                </span>
+                              </label>
+                              {!canConfirmRegistration && (
+                                <p className="text-xs text-red-500 mt-1 ml-6">
+                                  {!isApproved
+                                    ? (lang === "en" ? "Approve the application first." : "Approuvez d'abord la candidature.")
+                                    : (lang === "en" ? "Waiting on payment — this unlocks once payment status is \"success\"." : "En attente du paiement — se débloque une fois le paiement marqué « réussi ».")}
+                                </p>
+                              )}
+                              {a.programs?.type && requiredTypes.has(a.programs.type) ? (
+                                <p className="text-xs text-amber-600 mt-1 ml-6">
+                                  {lang === "en"
+                                    ? "Required for this programme type — the student can't access course content until this is checked."
+                                    : "Requis pour ce type de programme — l'étudiant ne pourra pas accéder au contenu tant que ceci n'est pas coché."}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-gray-400 mt-1 ml-6">
+                                  {lang === "en" ? "Not required for this programme type — informational only." : "Non requis pour ce type de programme — à titre informatif."}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}

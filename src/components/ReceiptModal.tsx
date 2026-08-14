@@ -12,6 +12,7 @@ interface ReceiptPayment {
   status: "pending" | "success" | "failed";
   method: string | null;
   reference: string | null;
+  transfer_reference?: string | null;
   paid_at: string | null;
   created_at: string;
 }
@@ -157,7 +158,7 @@ export default function ReceiptModal({ open, onClose, payment, studentName, prog
             <Row label={lang === "en" ? "Program" : "Programme"} value={programTitle ?? "—"} />
             <Row label={lang === "en" ? "Payment Type" : "Type de Paiement"} value={typeLabel} />
             <Row label={lang === "en" ? "Method" : "Méthode"} value={payment.method === "bank_transfer" ? (lang === "en" ? "Bank Transfer" : "Virement Bancaire") : "Paystack"} />
-            <Row label={lang === "en" ? "Reference" : "Référence"} value={payment.reference ?? "—"} mono />
+            <Row label={lang === "en" ? "Reference" : "Référence"} value={(payment.method === "bank_transfer" ? payment.transfer_reference : payment.reference) ?? "—"} mono />
             <Row label={lang === "en" ? "Date" : "Date"} value={`${dateStr} · ${timeStr}`} />
           </div>
 

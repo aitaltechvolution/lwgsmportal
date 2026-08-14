@@ -7,7 +7,7 @@ import { useToast } from "@/contexts/ToastContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { COUNTRIES, COUNTRY_DIAL_CODES } from "@/lib/constants";
 
-interface ProgramOpt { id: string; title: string; title_fr?: string | null; type: string; delivery_mode?: "online" | "onsite" | "self_paced" | null; }
+interface ProgramOpt { id: string; title: string; title_fr?: string | null; type: string; delivery_mode?: "online" | "onsite" | "self_paced" | null; applications_open?: boolean; applications_resume_date?: string | null; }
 
 const DELIVERY_LABEL: Record<string, { en: string; fr: string }> = {
   online: { en: "Online", fr: "En ligne" },
@@ -48,7 +48,7 @@ export default function Admissions() {
   const [status, setStatus] = useState<"idle" | "sending" | "ok" | "err" | "exists">("idle");
 
   useEffect(() => {
-    supabase.from("programs").select("id,title,title_fr,type,delivery_mode").order("type").order("title")
+    supabase.from("programs").select("id,title,title_fr,type,delivery_mode,applications_open,applications_resume_date").order("type").order("title")
       .then(({ data }) => setPrograms((data ?? []) as ProgramOpt[]));
   }, []);
 
@@ -98,6 +98,10 @@ export default function Admissions() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.course_id) return;
+    if (selectedProgram?.applications_open === false) {
+      showToast("error", lang === "en" ? "This programme isn't accepting applications right now." : "Ce programme n'accepte pas de candidatures pour le moment.");
+      return;
+    }
     setStatus("sending");
 
     // Block up front rather than letting this reach approval — previously
@@ -285,6 +289,19 @@ export default function Admissions() {
                   </div>
                 )}
 
+                {selectedProgram?.applications_open === false && (
+                  <div className="mb-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                    <p className="text-sm font-bold text-red-600">{lang === "en" ? "Admissions Closed" : "Admissions Fermées"}</p>
+                    <p className="text-xs text-red-500 mt-0.5">
+                      {selectedProgram.applications_resume_date
+                        ? (lang === "en"
+                            ? `This programme reopens for applications on ${new Date(selectedProgram.applications_resume_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}. Please choose another programme or check back then.`
+                            : `Ce programme rouvre aux candidatures le ${new Date(selectedProgram.applications_resume_date).toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" })}. Veuillez choisir un autre programme ou revenir plus tard.`)
+                        : (lang === "en" ? "This programme isn't accepting applications right now. Please choose another programme." : "Ce programme n'accepte pas de candidatures pour le moment. Veuillez choisir un autre programme.")}
+                    </p>
+                  </div>
+                )}
+
                 <div className="relative">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" strokeWidth={2} />
                   <input
@@ -300,15 +317,21 @@ export default function Admissions() {
                     {filteredPrograms.length === 0 ? (
                       <p className="text-sm text-gray-400 px-4 py-3">{lang === "en" ? "No programmes found." : "Aucun programme trouvé."}</p>
                     ) : filteredPrograms.map(p => (
-                      <button key={p.id} type="button"
+                      <button key={p.id} type="button" disabled={p.applications_open === false}
                         onClick={() => { setProgramId(p.id); setProgramSearch(""); }}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-amber-50 hover:text-brand transition-colors
+                        className={`w-full text-left px-4 py-3 text-sm transition-colors
+                          ${p.applications_open === false ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-50 hover:text-brand"}
                           ${programId === p.id ? "bg-navy/5 text-navy font-bold" : "text-ink"}`}>
                         <span className="font-medium">{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</span>
                         <span className="ml-2 text-xs text-gray-400 capitalize">{p.type}</span>
                         {p.delivery_mode && (
                           <span className="ml-2 text-xs font-bold text-navy bg-navy/5 px-2 py-0.5 rounded-full">
                             {lang === "en" ? DELIVERY_LABEL[p.delivery_mode]?.en : DELIVERY_LABEL[p.delivery_mode]?.fr}
+                          </span>
+                        )}
+                        {p.applications_open === false && (
+                          <span className="ml-2 text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                            {lang === "en" ? "Admissions Closed" : "Admissions Fermées"}
                           </span>
                         )}
                       </button>
@@ -318,15 +341,21 @@ export default function Admissions() {
                 {!programSearch && !selectedProgram && (
                   <div className="mt-1 border border-gray-200 rounded-xl overflow-hidden max-h-52 overflow-y-auto">
                     {programs.map(p => (
-                      <button key={p.id} type="button"
+                      <button key={p.id} type="button" disabled={p.applications_open === false}
                         onClick={() => setProgramId(p.id)}
-                        className={`w-full text-left px-4 py-3 text-sm hover:bg-amber-50 hover:text-brand transition-colors border-b border-gray-50 last:border-b-0
+                        className={`w-full text-left px-4 py-3 text-sm transition-colors border-b border-gray-50 last:border-b-0
+                          ${p.applications_open === false ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-50 hover:text-brand"}
                           ${programId === p.id ? "bg-navy/5 text-navy font-bold" : "text-ink"}`}>
                         <span className="font-medium">{(lang === "fr" && p.title_fr) ? p.title_fr : p.title}</span>
                         <span className="ml-2 text-xs text-gray-400 capitalize">{p.type}</span>
                         {p.delivery_mode && (
                           <span className="ml-2 text-xs font-bold text-navy bg-navy/5 px-2 py-0.5 rounded-full">
                             {lang === "en" ? DELIVERY_LABEL[p.delivery_mode]?.en : DELIVERY_LABEL[p.delivery_mode]?.fr}
+                          </span>
+                        )}
+                        {p.applications_open === false && (
+                          <span className="ml-2 text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                            {lang === "en" ? "Admissions Closed" : "Admissions Fermées"}
                           </span>
                         )}
                       </button>
@@ -445,7 +474,7 @@ export default function Admissions() {
                 <p className="text-red-500 text-sm">{lang === "en" ? "Submission failed. Please try again." : "Échec. Veuillez réessayer."}</p>
               )}
 
-              <button type="submit" disabled={status === "sending" || !form.course_id}
+              <button type="submit" disabled={status === "sending" || !form.course_id || selectedProgram?.applications_open === false}
                 className="w-full bg-brand hover:bg-brand/90 text-white font-bold py-3.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 shadow-glow disabled:opacity-60 disabled:translate-y-0 flex items-center justify-center gap-2">
                 {status === "sending"
                   ? <><Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />{lang === "en" ? "Submitting…" : "Envoi…"}</>
