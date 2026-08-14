@@ -22,11 +22,25 @@ interface Application {
   course_id?: string | null;
   program_id?: string | null;
   student_id?: string | null;
-  payment_status?: string | null;
-  payment_reference?: string | null;
   external_registration_confirmed: boolean;
   programs?: { title: string; type: string } | null;
-  courses?: { title: string } | null;
+  courses?: { title: string; program_id?: string | null } | null;
+}
+
+// The real record of whether a student has paid — the registration
+// payment itself, from the `payments` table (matched by student + the
+// program actually paid for). Applications never had a working
+// payment_status/payment_reference of their own: those columns don't
+// exist anywhere in the tracked schema, and nothing in the app ever
+// wrote to them, which meant the payment gate below was permanently
+// stuck on "unpaid" even for students who had genuinely paid and been
+// confirmed — regardless of which page they paid from.
+interface RegistrationPayment {
+  status: "pending" | "success" | "failed";
+  manual_confirmed: boolean;
+  method: string | null;
+  reference: string | null;
+  transfer_reference: string | null;
 }
 
 const STATUS_COLOR: Record<string, "orange"|"green"|"red"> = {
@@ -48,20 +62,29 @@ export default function AdminApplications() {
   // check (admin-configured in Settings) — the checkbox below only
   // matters for applications to those types; shown either way but noted.
   const [requiredTypes, setRequiredTypes] = useState<Set<string>>(new Set());
+  // Keyed by `student_id:program_id` — the student's registration
+  // payment for that specific program, sourced from the payments table
+  // itself rather than a non-functional column on applications.
+  const [regPayments, setRegPayments] = useState<Map<string, RegistrationPayment>>(new Map());
   // #4: admission letter — tracks which application is currently sending,
   // so the button can show a loading state and can't be double-clicked.
   const [sendingLetterId, setSendingLetterId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const [{ data }, { data: settingsData }] = await Promise.all([
+    const [{ data }, { data: settingsData }, { data: paymentsData }] = await Promise.all([
       supabase
         .from("applications")
-        .select("*, programs(title, type), courses(title)")
+        .select("*, programs(title, type), courses(title, program_id)")
         .order("submitted_at", { ascending: false }),
       supabase.from("site_settings").select("key, value").in("key", [
         "external_reg_required_certificate", "external_reg_required_diploma", "external_reg_required_pastoral",
       ]),
+      // The actual source of truth for "has this student paid" — see
+      // the RegistrationPayment comment above for why we can't just
+      // read this off the application row itself.
+      supabase.from("payments").select("student_id, program_id, status, manual_confirmed, method, reference, transfer_reference")
+        .eq("type", "registration").not("program_id", "is", null),
     ]);
     setApps((data ?? []) as Application[]);
     const settingsMap = new Map((settingsData ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
@@ -70,16 +93,46 @@ export default function AdminApplications() {
     if (settingsMap.get("external_reg_required_diploma") === "true") required.add("diploma");
     if (settingsMap.get("external_reg_required_pastoral") === "true") required.add("pastoral");
     setRequiredTypes(required);
+
+    const payMap = new Map<string, RegistrationPayment>();
+    (paymentsData ?? []).forEach((p: { student_id: string; program_id: string; status: "pending" | "success" | "failed"; manual_confirmed: boolean; method: string | null; reference: string | null; transfer_reference: string | null }) => {
+      const key = `${p.student_id}:${p.program_id}`;
+      const existing = payMap.get(key);
+      const isPaidNow = p.status === "success" || p.manual_confirmed;
+      // A student can have more than one payment attempt for the same
+      // programme (e.g. a failed card charge retried via bank transfer)
+      // — always prefer showing the one that's actually paid.
+      if (!existing || (isPaidNow && !(existing.status === "success" || existing.manual_confirmed))) {
+        payMap.set(key, { status: p.status, manual_confirmed: p.manual_confirmed, method: p.method, reference: p.reference, transfer_reference: p.transfer_reference });
+      }
+    });
+    setRegPayments(payMap);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
+  // An application's program_id can be null (only course_id set) while
+  // the enrollment/payment actually created for it uses the program
+  // resolved from that course — same resolution process-application-decision
+  // performs at approval time. Match on that resolved id, not the raw
+  // (possibly null) application field, or a genuinely paid student can
+  // still show as unpaid here.
+  const effectiveProgramId = (a: Application) => a.program_id ?? a.courses?.program_id ?? null;
+  const regPaymentOf = (a: Application) => {
+    const pid = effectiveProgramId(a);
+    return (a.student_id && pid) ? regPayments.get(`${a.student_id}:${pid}`) : undefined;
+  };
+  const isRegPaid = (a: Application) => {
+    const p = regPaymentOf(a);
+    return !!p && (p.status === "success" || p.manual_confirmed);
+  };
+
   const toggleExternalRegConfirmed = async (a: Application) => {
     // Belt-and-suspenders: the checkbox is already disabled in the UI
     // until the application is approved and paid for, but guard here too
     // in case this is ever called from elsewhere.
-    if (a.status !== "approved" || a.payment_status !== "success") {
+    if (a.status !== "approved" || !isRegPaid(a)) {
       showToast("error", lang === "en"
         ? "The application must be approved and paid for before registration can be confirmed."
         : "La candidature doit être approuvée et payée avant de confirmer l'inscription.");
@@ -234,21 +287,27 @@ export default function AdminApplications() {
                           <p className="text-sm text-ink leading-relaxed">{a.work_experience}</p>
                         </div>
                       )}
-                      {(a.payment_status || a.payment_reference) && (
-                        <div className="pt-2 border-t border-gray-200">
-                          <p className="text-xs font-bold text-slate mb-1">{lang === "en" ? "Payment:" : "Paiement :"}</p>
-                          <p className="text-sm text-ink">
-                            <Badge color={a.payment_status === "success" ? "green" : a.payment_status === "manual_pending" ? "orange" : "red"}>
-                              {a.payment_status ?? "—"}
-                            </Badge>
-                            {a.payment_reference && <span className="ml-2 text-xs text-gray-400 font-mono">{a.payment_reference}</span>}
-                          </p>
-                        </div>
-                      )}
+                      {(() => {
+                        const pay = regPaymentOf(a);
+                        if (!pay) return null;
+                        const realRef = pay.method === "bank_transfer" ? pay.transfer_reference : pay.reference;
+                        const paid = pay.status === "success" || pay.manual_confirmed;
+                        return (
+                          <div className="pt-2 border-t border-gray-200">
+                            <p className="text-xs font-bold text-slate mb-1">{lang === "en" ? "Registration Payment:" : "Paiement d'Inscription :"}</p>
+                            <p className="text-sm text-ink">
+                              <Badge color={paid ? "green" : pay.status === "pending" ? "orange" : "red"}>
+                                {paid ? (lang === "en" ? "Paid" : "Payé") : pay.status}
+                              </Badge>
+                              {realRef && <span className="ml-2 text-xs text-gray-400 font-mono">{realRef}</span>}
+                            </p>
+                          </div>
+                        );
+                      })()}
                       <div className="pt-2 border-t border-gray-200">
                         {(() => {
                           const isApproved = a.status === "approved";
-                          const isPaid = a.payment_status === "success";
+                          const isPaid = isRegPaid(a);
                           // Flow order is Approval -> Payment -> Registration:
                           // a student can't be marked as having completed
                           // external registration until they've been
